@@ -16,10 +16,11 @@ public final class PermissionRequestDtos {
     @Schema(description = "权限申请类型")
     public static final String ITSM_ACCESS = "ITSM_ACCESS";
     public static final String ADMIN = "ADMIN";
+    public static final String WHALE_ACCESS = "WHALE_ACCESS";
 
     @Schema(description = "提交权限申请请求")
     public record SubmitPermissionRequest(
-            @Schema(description = "申请类型：ITSM_ACCESS 或 ADMIN") String requestType,
+            @Schema(description = "申请类型：ITSM_ACCESS / ADMIN / WHALE_ACCESS") String requestType,
             @Schema(description = "申请原因") String reason
     ) {
     }

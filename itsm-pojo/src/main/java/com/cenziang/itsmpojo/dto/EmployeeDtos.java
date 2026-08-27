@@ -3,6 +3,8 @@ package com.cenziang.itsmpojo.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.util.List;
+
 /**
  * 员工账号管理相关 DTO。
  */
@@ -18,7 +20,8 @@ public final class EmployeeDtos {
             @Schema(description = "部门名称") String departmentName,
             @Schema(description = "手机号") String phone,
             @Schema(description = "邮箱") String email,
-            @Schema(description = "是否启用") boolean enabled
+            @Schema(description = "是否启用") boolean enabled,
+            @Schema(description = "角色编码列表") List<String> roles
     ) {
     }
 

@@ -109,6 +109,8 @@ public class AuthSeedInitializer implements CommandLineRunner {
         seedSupportAgent();
         seedAdminAgent();
         seedDictionaries();
+        seedDepartments();
+        seedEmployees();
     }
 
     /**
@@ -250,6 +252,114 @@ public class AuthSeedInitializer implements CommandLineRunner {
                 name,
                 parentId,
                 sortNo
+        );
+    }
+
+    /**
+     * 落一组部门种子数据，便于部门管理 CRUD 联调。
+     */
+    private void seedDepartments() {
+        String tenantId = properties.getSeed().getTenantId();
+        seedDepartment(tenantId, "dept_admin", "客服管理部", "客服团队管理部门");
+        seedDepartment(tenantId, "dept_support", "一线支持组", "一线工单支持");
+        seedDepartment(tenantId, "dept_tech_support", "技术支持部", "技术支持与二线处理");
+        seedDepartment(tenantId, "dept_rd", "研发部", "产品研发");
+        seedDepartment(tenantId, "dept_mkt", "市场部", "市场推广");
+        seedDepartment(tenantId, "dept_hr", "人力资源部", "人事与行政");
+        seedDepartment(tenantId, "dept_fin", "财务部", "财务核算");
+        seedDepartment(tenantId, "dept_ops", "运维部", "系统运维");
+    }
+
+    private void seedDepartment(String tenantId, String departmentId, String name, String description) {
+        jdbcTemplate.update(
+                """
+                        INSERT INTO department (department_id, tenant_id, name, description, enabled)
+                        VALUES (?, ?, ?, ?, 1)
+                        ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), enabled = 1
+                        """,
+                departmentId,
+                tenantId,
+                name,
+                description
+        );
+    }
+
+    /**
+     * 补齐到 20 名员工：1 个管理员 + 5 个客服 + 14 个普通用户。
+     * <p>
+     * 已有账号：000001 管理员、000002 客服一、000003 张三；本方法再补 4 个客服与 13 个普通用户。
+     * </p>
+     */
+    private void seedEmployees() {
+        String tenantId = properties.getSeed().getTenantId();
+        seedEmployee(tenantId, "000004", "客服二", "一线支持组", "SUPPORT_AGENT");
+        seedEmployee(tenantId, "000005", "客服三", "一线支持组", "SUPPORT_AGENT");
+        seedEmployee(tenantId, "000006", "客服四", "一线支持组", "SUPPORT_AGENT");
+        seedEmployee(tenantId, "000007", "客服五", "一线支持组", "SUPPORT_AGENT");
+
+        String[][] users = {
+                {"000008", "刘伟", "研发部"},
+                {"000009", "陈静", "市场部"},
+                {"000010", "杨帆", "人力资源部"},
+                {"000011", "黄磊", "财务部"},
+                {"000012", "周涛", "运维部"},
+                {"000013", "吴敏", "研发部"},
+                {"000014", "徐强", "市场部"},
+                {"000015", "孙丽", "人力资源部"},
+                {"000016", "马超", "财务部"},
+                {"000017", "朱琳", "运维部"},
+                {"000018", "胡军", "研发部"},
+                {"000019", "郭芳", "市场部"},
+                {"000020", "何平", "人力资源部"}
+        };
+        for (String[] user : users) {
+            seedEmployee(tenantId, user[0], user[1], user[2], "USER");
+        }
+    }
+
+    private void seedEmployee(String tenantId, String userId, String displayName, String departmentName, String roleCode) {
+        String email = accountGenerator.generateEmail(tenantId, displayName);
+        String phone = String.format("138%08d", Integer.parseInt(userId));
+        jdbcTemplate.update(
+                """
+                        INSERT INTO app_user (user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled)
+                        VALUES (?, ?, ?, ?, ?, ?, 1)
+                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), department_name = VALUES(department_name), contact_phone = VALUES(contact_phone), contact_email = VALUES(contact_email), enabled = VALUES(enabled)
+                        """,
+                userId,
+                tenantId,
+                displayName,
+                departmentName,
+                phone,
+                email
+        );
+
+        jdbcTemplate.update(
+                """
+                        INSERT INTO user_credential (
+                            credential_id, tenant_id, user_id, login_name, password_hash, password_algo,
+                            password_version, auth_version, failed_count, locked_until, last_login_at, last_login_ip, status
+                        ) VALUES (?, ?, ?, ?, ?, 'bcrypt', 1, 1, 0, NULL, NULL, NULL, 'ACTIVE')
+                        ON DUPLICATE KEY UPDATE login_name = VALUES(login_name), password_hash = VALUES(password_hash), status = VALUES(status)
+                        """,
+                UUID.randomUUID().toString(),
+                tenantId,
+                userId,
+                userId,
+                passwordEncoder.encode("P@ssw0rd123")
+        );
+
+        jdbcTemplate.update(
+                """
+                        INSERT INTO app_user_role (user_id, role_id, tenant_id)
+                        SELECT ?, role_id, tenant_id
+                        FROM rbac_role
+                        WHERE tenant_id = ? AND role_code = ?
+                        ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)
+                        """,
+                userId,
+                tenantId,
+                roleCode
         );
     }
 }

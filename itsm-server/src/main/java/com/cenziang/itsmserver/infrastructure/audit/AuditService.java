@@ -5,6 +5,7 @@ import com.cenziang.itsmpojo.entity.TicketActionLogEntity;
 import com.cenziang.itsmserver.infrastructure.JsonSupport;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.AuditLogMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.TicketActionLogMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -12,9 +13,11 @@ import java.util.UUID;
 /**
  * 审计与动作流水写入服务。
  * <p>
- * 关键业务动作都会落到 audit_log 或 ticket_action_log，便于问题追踪。
+ * 关键业务动作都会落到 audit_log 或 ticket_action_log，便于问题追踪；
+ * 同时通过 SLF4J 在 INFO 级别打印一份，方便在日志文件里按操作人追踪。
  * </p>
  */
+@Slf4j
 @Service
 public class AuditService {
     private final AuditLogMapper auditLogMapper;
@@ -43,6 +46,8 @@ public class AuditService {
                 .setRequestTraceId(traceId)
                 .setDetailJson(detail == null ? null : jsonSupport.write(detail));
         auditLogMapper.insert(entity);
+        log.info("[审计] tenant={}, operator={}({}), action={}, resource={}:{}, traceId={}",
+                tenantId, operatorId, operatorType, actionType, resourceType, resourceId, traceId);
     }
 
     /**
@@ -59,5 +64,7 @@ public class AuditService {
                 .setOperatorType(operatorType)
                 .setActionContent(content);
         actionLogMapper.insert(entity);
+        log.info("[工单动作] tenant={}, ticket={}, action={}, operator={}({})",
+                tenantId, ticketId, actionType, operatorId, operatorType);
     }
 }

@@ -44,11 +44,11 @@ public class PermissionApprovalController extends ControllerSupport {
         return ok(approvalService.listMy(context(httpServletRequest, tenantId)), httpServletRequest);
     }
 
-    @Operation(summary = "待审批列表", description = "管理员查看待审批的权限申请")
+    @Operation(summary = "审批列表", description = "管理员查看权限申请（含待审批与已处理）")
     @GetMapping("/api/v1/admin/permissions/requests")
     public ApiResponse<List<PermissionRequestDtos.PermissionRequestView>> pending(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
                                                                                   HttpServletRequest httpServletRequest) {
-        return ok(approvalService.listPending(context(httpServletRequest, tenantId)), httpServletRequest);
+        return ok(approvalService.listAll(context(httpServletRequest, tenantId)), httpServletRequest);
     }
 
     @Operation(summary = "批准申请", description = "管理员批准权限申请并授予对应角色")

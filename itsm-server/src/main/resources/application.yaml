@@ -72,3 +72,9 @@ knife4j:
     language: zh_cn
     enable-swagger-models: true
     enable-document-manage: true
+
+logging:
+  level:
+    root: INFO
+  file:
+    name: logs/itsm.log

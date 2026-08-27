@@ -1,16 +1,17 @@
 package com.cenziang.itsmserver.service;
+import com.cenziang.itsmcommon.api.BusinessException;
+import com.cenziang.itsmcommon.api.ErrorCode;
 import com.cenziang.itsmserver.config.properties.ItsmAuthProperties;
 import com.cenziang.itsmserver.domain.AuthCredential;
 import com.cenziang.itsmserver.domain.AuthRefreshToken;
 import com.cenziang.itsmserver.domain.AuthRole;
 import com.cenziang.itsmserver.domain.AuthTenant;
 import com.cenziang.itsmserver.domain.AuthUser;
-import com.cenziang.itsmcommon.api.BusinessException;
-import com.cenziang.itsmcommon.api.ErrorCode;
 import com.cenziang.itsmserver.dto.AuthLoginRequest;
 import com.cenziang.itsmserver.dto.AuthLoginResponse;
 import com.cenziang.itsmserver.dto.AuthMeResponse;
 import com.cenziang.itsmserver.dto.AuthRefreshRequest;
+import com.cenziang.itsmserver.infrastructure.audit.AuditService;
 import com.cenziang.itsmserver.repository.AuthCredentialRepository;
 import com.cenziang.itsmserver.repository.AuthLoginAuditRepository;
 import com.cenziang.itsmserver.repository.AuthRefreshTokenRepository;
@@ -36,6 +37,7 @@ public class AuthService {
     private final AuthLoginAuditRepository loginAuditRepository;
     private final AuthTokenService tokenService;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     public AuthService(ItsmAuthProperties properties,
                        AuthTenantRepository tenantRepository,
@@ -43,7 +45,8 @@ public class AuthService {
                        AuthCredentialRepository credentialRepository,
                        AuthRefreshTokenRepository refreshTokenRepository,
                        AuthLoginAuditRepository loginAuditRepository,
-                       AuthTokenService tokenService) {
+                       AuthTokenService tokenService,
+                       AuditService auditService) {
         this.properties = properties;
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
@@ -51,6 +54,7 @@ public class AuthService {
         this.refreshTokenRepository = refreshTokenRepository;
         this.loginAuditRepository = loginAuditRepository;
         this.tokenService = tokenService;
+        this.auditService = auditService;
         this.passwordEncoder = new BCryptPasswordEncoder(properties.getBcryptStrength());
     }
 
@@ -117,6 +121,8 @@ public class AuthService {
         ));
         credentialRepository.recordSuccessfulLogin(credential.credentialId(), clientIp);
         loginAuditRepository.record(tenant.tenantId(), user.userId(), loginName, "SUCCESS", null, clientIp, userAgent, traceId);
+        auditService.recordAudit(tenant.tenantId(), user.userId(), "USER", "LOGIN",
+                "AUTH", user.userId(), traceId, null);
 
         return new AuthLoginResponse(
                 accessToken,

@@ -4,6 +4,7 @@ import com.cenziang.itsmcommon.api.BusinessException;
 import com.cenziang.itsmcommon.api.ErrorCode;
 import com.cenziang.itsmpojo.dto.PermissionRequestDtos;
 import com.cenziang.itsmserver.application.RequestContext;
+import com.cenziang.itsmserver.infrastructure.audit.AuditService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,12 +25,14 @@ import java.util.UUID;
 @Service
 public class PermissionApprovalService {
     private static final Set<String> REQUEST_TYPES = Set.of(
-            PermissionRequestDtos.ITSM_ACCESS, PermissionRequestDtos.ADMIN);
+            PermissionRequestDtos.ITSM_ACCESS, PermissionRequestDtos.ADMIN, PermissionRequestDtos.WHALE_ACCESS);
 
     private final JdbcTemplate jdbcTemplate;
+    private final AuditService auditService;
 
-    public PermissionApprovalService(JdbcTemplate jdbcTemplate) {
+    public PermissionApprovalService(JdbcTemplate jdbcTemplate, AuditService auditService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.auditService = auditService;
     }
 
     /**
@@ -65,22 +68,24 @@ public class PermissionApprovalService {
                 request.requestType(),
                 request.reason()
         );
+        auditService.recordAudit(context.tenantId(), context.userId(), "USER", "PERMISSION_SUBMIT",
+                "PERMISSION_REQUEST", requestId, null, request.requestType());
         return new PermissionRequestDtos.PermissionRequestResponse(requestId, "PENDING");
     }
 
     /**
-     * 管理员查询待审批列表。
+     * 管理员查询审批列表（含待审批与已处理，待审批排前面）。
      */
     @Transactional(readOnly = true)
-    public List<PermissionRequestDtos.PermissionRequestView> listPending(RequestContext context) {
+    public List<PermissionRequestDtos.PermissionRequestView> listAll(RequestContext context) {
         requireAdmin(context);
         return jdbcTemplate.query(
                 """
                         SELECT pr.request_id, pr.requester_id, u.display_name, pr.request_type, pr.status, pr.reason, pr.created_at
                         FROM permission_request pr
                         LEFT JOIN app_user u ON u.tenant_id = pr.tenant_id AND u.user_id = pr.requester_id
-                        WHERE pr.tenant_id = ? AND pr.status = 'PENDING'
-                        ORDER BY pr.created_at ASC
+                        WHERE pr.tenant_id = ?
+                        ORDER BY (pr.status = 'PENDING') DESC, pr.created_at DESC
                         """,
                 (rs, rowNum) -> new PermissionRequestDtos.PermissionRequestView(
                         rs.getString("request_id"),
@@ -137,6 +142,8 @@ public class PermissionApprovalService {
                 requestId,
                 context.tenantId()
         );
+        auditService.recordAudit(context.tenantId(), context.userId(), "ADMIN", "PERMISSION_APPROVE",
+                "PERMISSION_REQUEST", requestId, null, "requester=" + pending.requesterId() + ", type=" + pending.requestType());
         return new PermissionRequestDtos.PermissionRequestResponse(requestId, "APPROVED");
     }
 
@@ -146,13 +153,15 @@ public class PermissionApprovalService {
     @Transactional
     public PermissionRequestDtos.PermissionRequestResponse reject(RequestContext context, String requestId) {
         requireAdmin(context);
-        requirePending(context.tenantId(), requestId);
+        PendingRequest pending = requirePending(context.tenantId(), requestId);
         jdbcTemplate.update(
                 "UPDATE permission_request SET status = 'REJECTED', approver_id = ?, decided_at = CURRENT_TIMESTAMP(3) WHERE request_id = ? AND tenant_id = ?",
                 context.userId(),
                 requestId,
                 context.tenantId()
         );
+        auditService.recordAudit(context.tenantId(), context.userId(), "ADMIN", "PERMISSION_REJECT",
+                "PERMISSION_REQUEST", requestId, null, "requester=" + pending.requesterId() + ", type=" + pending.requestType());
         return new PermissionRequestDtos.PermissionRequestResponse(requestId, "REJECTED");
     }
 
@@ -163,7 +172,13 @@ public class PermissionApprovalService {
     }
 
     private String targetRole(String requestType) {
-        return PermissionRequestDtos.ADMIN.equals(requestType) ? "SUPPORT_ADMIN" : "SUPPORT_AGENT";
+        if (PermissionRequestDtos.ADMIN.equals(requestType)) {
+            return "SUPPORT_ADMIN";
+        }
+        if (PermissionRequestDtos.WHALE_ACCESS.equals(requestType)) {
+            return "WHALE";
+        }
+        return "SUPPORT_AGENT";
     }
 
     private boolean hasRole(String tenantId, String userId, String roleCode) {

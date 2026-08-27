@@ -69,6 +69,7 @@
     },
     myRequests: [],
     approvals: [],
+    approvalTab: '',
     contacts: [],
     contactsPage: 1,
     contactsPageSize: 10,
@@ -76,11 +77,21 @@
     employees: [],
     employeeEditingId: null,
     employeeForm: { departmentName: '', phone: '', email: '' },
+    employeesPage: 1,
+    employeesPageSize: 10,
+    employeesTotal: 0,
+    employeeKeyword: '',
+    employeeDepartmentFilter: '',
+    employeeRoleFilter: '',
+    departments: [],
+    departmentEditingId: null,
+    departmentForm: { name: '', description: '', enabled: true },
     ticketDetail: null,
     ticketAction: 'none',
     reopenReason: '',
     ratingScore: 0,
-    ratingComment: ''
+    ratingComment: '',
+    scrollChatToBottomPending: false
   };
 
   function escapeHtml(value) {
@@ -148,7 +159,8 @@
       USER: '普通用户',
       SUPPORT_AGENT: '普通客服',
       SUPPORT_ADMIN: '管理员客服',
-      SUPERVISOR: '主管/质检'
+      SUPERVISOR: '主管/质检',
+      WHALE: '数鲸看板'
     };
     if (roleList.length) return roleList.map((role) => labels[role] || role).join(' / ');
     return activeProfile().label;
@@ -162,10 +174,27 @@
     };
   }
 
+  function isAuthError(body, status) {
+    return status === 401 || (body && (body.code === 'AUTH_REQUIRED' || body.code === 'TOKEN_INVALID'));
+  }
+
+  function forceLogout() {
+    session.accessToken = null;
+    session.refreshToken = null;
+    session.user = null;
+    session.tenant = null;
+    session.roles = [];
+    localStorage.removeItem('itsm.session');
+    state.loggedIn = false;
+    state.profileOpen = false;
+    render();
+  }
+
   async function apiGet(path) {
     const response = await fetch(path, { headers: authHeaders() });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.code !== 'SUCCESS') {
+      if (isAuthError(body, response.status)) forceLogout();
       throw new Error(body.message || `HTTP ${response.status}`);
     }
     return body.data;
@@ -227,6 +256,33 @@
     }
   }
 
+  async function loadMe() {
+    if (!session.accessToken) return;
+    try {
+      const me = await apiGet('/api/v1/auth/me');
+      if (!me) return;
+      session.user = {
+        ...(session.user || {}),
+        userId: me.userId,
+        displayName: me.displayName,
+        departmentName: me.departmentName
+      };
+      session.roles = me.roles || [];
+      state.activeRole = roleFromLogin(session.roles);
+      state.actorUserId = me.userId;
+      state.actorDisplayName = me.displayName;
+      state.actorDepartment = me.departmentName;
+      const stored = JSON.parse(localStorage.getItem('itsm.session') || 'null');
+      if (stored) {
+        stored.user = session.user;
+        stored.roles = session.roles;
+        localStorage.setItem('itsm.session', JSON.stringify(stored));
+      }
+    } catch (error) {
+      // token 失效等场景会由 apiGet 触发登出，这里保持现状即可
+    }
+  }
+
   async function loadRemoteData() {
     try {
       const [ticketPage, sessionPage] = await Promise.all([
@@ -238,7 +294,7 @@
       if (remoteData.sessions.length) {
         await loadSessionMessages(remoteData.sessions[0]);
       }
-      await Promise.all([loadMyRequests(), loadApprovals(), loadContacts(), loadEmployees()]);
+      await Promise.all([loadMyRequests(), loadApprovals(), loadContacts(), loadEmployees(), loadDepartments(), loadColleagueConversations()]);
     } catch (error) {
       remoteData.tickets = [];
       remoteData.sessions = [];
@@ -275,9 +331,27 @@
   async function loadEmployees() {
     if (!hasAdminRole()) return;
     try {
-      state.employees = await apiGet('/api/v1/admin/employees') || [];
+      const params = new URLSearchParams();
+      params.set('page', String(state.employeesPage || 1));
+      params.set('pageSize', String(state.employeesPageSize || 10));
+      if (state.employeeKeyword) params.set('keyword', state.employeeKeyword);
+      if (state.employeeDepartmentFilter) params.set('departmentName', state.employeeDepartmentFilter);
+      if (state.employeeRoleFilter) params.set('role', state.employeeRoleFilter);
+      const page = await apiGet('/api/v1/admin/employees?' + params.toString());
+      state.employees = (page && page.items) || [];
+      state.employeesTotal = (page && page.total) || 0;
     } catch (error) {
       state.employees = [];
+      state.employeesTotal = 0;
+    }
+  }
+
+  async function loadDepartments() {
+    if (!hasAdminRole()) return;
+    try {
+      state.departments = await apiGet('/api/v1/admin/departments') || [];
+    } catch (error) {
+      state.departments = [];
     }
   }
 
@@ -312,6 +386,67 @@
       showToast('已保存', '员工账号已更新', 'success');
     } catch (error) {
       showToast('保存失败', error.message, 'error');
+    }
+  }
+
+  function startAddDepartment() {
+    state.departmentEditingId = '__new__';
+    state.departmentForm = { name: '', description: '', enabled: true };
+    render();
+  }
+
+  function startEditDepartment(departmentId) {
+    const dept = (state.departments || []).find((d) => d.departmentId === departmentId);
+    state.departmentEditingId = departmentId;
+    state.departmentForm = {
+      name: dept ? (dept.name || '') : '',
+      description: dept ? (dept.description || '') : '',
+      enabled: dept ? dept.enabled !== false : true
+    };
+    render();
+  }
+
+  function cancelEditDepartment() {
+    state.departmentEditingId = null;
+    state.departmentForm = { name: '', description: '', enabled: true };
+    render();
+  }
+
+  async function saveDepartment() {
+    const name = (state.departmentForm.name || '').trim();
+    if (!name) {
+      showToast('保存失败', '部门名称不能为空', 'error');
+      return;
+    }
+    const description = state.departmentForm.description || null;
+    try {
+      if (state.departmentEditingId === '__new__') {
+        await apiPost('/api/v1/admin/departments', { name, description });
+      } else {
+        await apiPatch('/api/v1/admin/departments/' + encodeURIComponent(state.departmentEditingId), {
+          name,
+          description,
+          enabled: !!state.departmentForm.enabled
+        });
+      }
+      state.departmentEditingId = null;
+      state.departmentForm = { name: '', description: '', enabled: true };
+      await Promise.all([loadDepartments(), loadEmployees()]);
+      render();
+      showToast('已保存', '部门已保存', 'success');
+    } catch (error) {
+      showToast('保存失败', error.message, 'error');
+    }
+  }
+
+  async function deleteDepartment(departmentId) {
+    try {
+      await apiDelete('/api/v1/admin/departments/' + encodeURIComponent(departmentId));
+      await loadDepartments();
+      render();
+      showToast('已删除', '部门已删除', 'success');
+    } catch (error) {
+      showToast('删除失败', error.message, 'error');
     }
   }
 
@@ -358,6 +493,7 @@
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.code !== 'SUCCESS') {
+      if (isAuthError(body, response.status)) forceLogout();
       throw new Error(body.message || `HTTP ${response.status}`);
     }
     return body.data;
@@ -371,6 +507,20 @@
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.code !== 'SUCCESS') {
+      if (isAuthError(body, response.status)) forceLogout();
+      throw new Error(body.message || `HTTP ${response.status}`);
+    }
+    return body.data;
+  }
+
+  async function apiDelete(path) {
+    const response = await fetch(path, {
+      method: 'DELETE',
+      headers: authHeaders()
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.code !== 'SUCCESS') {
+      if (isAuthError(body, response.status)) forceLogout();
       throw new Error(body.message || `HTTP ${response.status}`);
     }
     return body.data;
@@ -400,6 +550,7 @@
         state.handoffOpen = true;
       }
       await loadRemoteData();
+      state.scrollChatToBottomPending = true;
       render();
     } catch (error) {
       showToast('发送失败', error.message, 'error');
@@ -422,25 +573,75 @@
     }
   }
 
+  async function loadColleagueConversations() {
+    if (!session.accessToken) return;
+    try {
+      const list = await apiGet('/api/v1/colleagues/messages/conversations') || [];
+      const existingByUser = new Map((state.colleagueConversations || []).map((c) => [c.userId, c]));
+      const serverUserIds = new Set(list.map((item) => item.userId));
+      const merged = list.map((item) => {
+        const existing = existingByUser.get(item.userId);
+        if (existing) {
+          existing.displayName = item.displayName || existing.displayName;
+          existing.departmentName = item.departmentName || existing.departmentName;
+          existing.lastMessage = item.lastMessage || existing.lastMessage || '开始聊天';
+          existing.lastMessageAt = item.lastMessageAt || existing.lastMessageAt;
+          existing.unreadCount = item.unreadCount || 0;
+          existing.contactId = item.userId;
+          return existing;
+        }
+        return {
+          conversationId: 'col_con_' + item.userId,
+          contactId: item.userId,
+          userId: item.userId,
+          displayName: item.displayName || item.userId,
+          departmentName: item.departmentName || '未分配部门',
+          status: 'ONLINE',
+          lastMessage: item.lastMessage || '开始聊天',
+          lastMessageAt: item.lastMessageAt || nowIso(),
+          unreadCount: item.unreadCount || 0,
+          messages: [],
+          hasMore: false,
+          loadingOlder: false
+        };
+      });
+      // 保留尚无历史消息的本地会话（刚点开联系人、还没发出首条消息），避免刷新/轮询时被清掉
+      (state.colleagueConversations || []).forEach((local) => {
+        if (!serverUserIds.has(local.userId)) {
+          merged.push(local);
+        }
+      });
+      state.colleagueConversations = merged;
+    } catch (error) {
+      state.colleagueConversations = [];
+    }
+  }
+
+  async function markColleagueRead(userId) {
+    try {
+      await apiPost('/api/v1/colleagues/messages/' + encodeURIComponent(userId) + '/read', {});
+    } catch (error) {
+      // 已读标记失败不影响聊天展示
+    }
+  }
+
+  function mapColleagueMessage(m, conversation) {
+    return {
+      messageId: String(m.id),
+      senderType: m.fromUserId === currentUserId() ? 'USER' : 'CONTACT',
+      senderName: m.fromUserId === currentUserId() ? userProfile().displayName : conversation.displayName,
+      content: m.content,
+      createdAt: m.createdAt
+    };
+  }
+
   async function loadColleagueMessages(conversation) {
     try {
-      const list = await apiGet('/api/v1/colleagues/messages?peerUserId=' + encodeURIComponent(conversation.userId));
-      conversation.messages = (list || []).map((m) => ({
-        messageId: String(m.id),
-        senderType: m.fromUserId === currentUserId() ? 'USER' : 'CONTACT',
-        senderName: m.fromUserId === currentUserId() ? userProfile().displayName : conversation.displayName,
-        content: m.content,
-        createdAt: m.createdAt
-      }));
-      const isOpen = state.view === 'MESSAGES' && state.chat.type === 'COLLEAGUE' && state.chat.id === conversation.conversationId;
-      if (isOpen) {
-        conversation.unreadCount = 0;
-        conversation.lastReadMessageId = conversation.messages.length ? Number(conversation.messages[conversation.messages.length - 1].messageId) : 0;
-      } else {
-        const lastRead = conversation.lastReadMessageId || 0;
-        const unread = conversation.messages.filter((m) => Number(m.messageId) > lastRead && m.senderType === 'CONTACT');
-        conversation.unreadCount = unread.length;
-      }
+      const page = await apiGet('/api/v1/colleagues/messages?peerUserId=' + encodeURIComponent(conversation.userId) + '&limit=30');
+      const items = (page && page.items) || [];
+      conversation.messages = items.map((m) => mapColleagueMessage(m, conversation));
+      conversation.hasMore = !!(page && page.hasMore);
+      conversation.loadingOlder = false;
       if (conversation.messages.length) {
         const last = conversation.messages[conversation.messages.length - 1];
         conversation.lastMessage = last.content;
@@ -448,14 +649,42 @@
       }
     } catch (error) {
       conversation.messages = [];
+      conversation.hasMore = false;
     }
   }
 
-  function openColleagueConversation(conversation) {
-    conversation.lastReadMessageId = conversation.messages.length ? Number(conversation.messages[conversation.messages.length - 1].messageId) : 0;
+  async function loadOlderColleagueMessages(conversation) {
+    if (conversation.loadingOlder || !conversation.messages.length) return;
+    conversation.loadingOlder = true;
+    render();
+    try {
+      const oldestId = conversation.messages[0].messageId;
+      const page = await apiGet('/api/v1/colleagues/messages?peerUserId=' + encodeURIComponent(conversation.userId) + '&limit=30&beforeId=' + encodeURIComponent(oldestId));
+      const items = (page && page.items) || [];
+      const older = items.map((m) => mapColleagueMessage(m, conversation));
+      conversation.messages = older.concat(conversation.messages);
+      conversation.hasMore = !!(page && page.hasMore);
+    } catch (error) {
+      // 忽略，保持现状
+    } finally {
+      conversation.loadingOlder = false;
+      render();
+    }
+  }
+
+  function scrollChatToBottom() {
+    const scroller = document.querySelector('.chat-panel .chat-scroll') || document.querySelector('.chat-scroll');
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  async function openColleagueChat(conversation) {
     conversation.unreadCount = 0;
+    markColleagueRead(conversation.userId);
     state.view = 'MESSAGES';
     state.chat = { type: 'COLLEAGUE', id: conversation.conversationId };
+    await loadColleagueMessages(conversation);
+    state.scrollChatToBottomPending = true;
+    render();
   }
 
   async function sendColleagueMessage(conversation, content) {
@@ -463,6 +692,7 @@
       await apiPost('/api/v1/colleagues/messages', { toUserId: conversation.userId, content });
       state.colleagueDraft = '';
       await loadColleagueMessages(conversation);
+      state.scrollChatToBottomPending = true;
       render();
     } catch (error) {
       showToast('发送失败', error.message, 'error');
@@ -657,9 +887,23 @@
     return roles.includes('SUPPORT_AGENT') || roles.includes('SUPPORT_ADMIN') || roles.includes('SUPERVISOR');
   }
 
+  function hasWhaleAccess() {
+    const roles = session.roles || [];
+    return roles.includes('SUPPORT_ADMIN') || roles.includes('WHALE');
+  }
+
   function hasAdminRole() {
     const roles = session.roles || [];
     return roles.includes('SUPPORT_ADMIN');
+  }
+
+  function permissionTypeLabel(requestType) {
+    const labels = {
+      ITSM_ACCESS: 'ITSM 权限',
+      ADMIN: '管理员权限',
+      WHALE_ACCESS: '数鲸看板权限'
+    };
+    return labels[requestType] || requestType || '权限';
   }
 
   function userSessions() {
@@ -700,6 +944,8 @@
       renderLogin();
       return;
     }
+    const chatScroller = document.querySelector('.chat-panel .chat-scroll') || document.querySelector('.chat-scroll');
+    const prevScrollTop = chatScroller ? chatScroller.scrollTop : null;
     const views = {
       MESSAGES: renderMessages,
       HISTORY: renderHistory,
@@ -708,9 +954,17 @@
       ITSM: renderItsm,
       WHALE: renderWhale,
       APPROVALS: renderApprovals,
-      EMPLOYEES: renderEmployees
+      EMPLOYEES: renderEmployees,
+      DEPARTMENTS: renderDepartments
     };
     (views[state.view] || renderMessages)();
+    if (state.scrollChatToBottomPending) {
+      state.scrollChatToBottomPending = false;
+      scrollChatToBottom();
+    } else if (prevScrollTop != null) {
+      const nextScroller = document.querySelector('.chat-panel .chat-scroll') || document.querySelector('.chat-scroll');
+      if (nextScroller) nextScroller.scrollTop = prevScrollTop;
+    }
   }
 
   function renderLogin() {
@@ -758,7 +1012,8 @@
       ITSM: 'ITSM 工单',
       WHALE: '数鲸看板',
       APPROVALS: '审批',
-      EMPLOYEES: '员工账号'
+      EMPLOYEES: '员工账号',
+      DEPARTMENTS: '部门管理'
     };
     const views = [
       { key: 'MESSAGES', label: '消息' },
@@ -871,11 +1126,14 @@
 
   function renderColleagueChat(conversation) {
     if (!conversation) return '<div class="chat-body"><div class="empty-state">暂无同事会话，请到联系人中发起聊天。</div></div>';
+    const olderBlock = conversation.loadingOlder
+      ? '<div class="chat-loading-more">正在加载…</div>'
+      : (conversation.hasMore ? '<button class="chat-load-more" data-action="load-older-messages">加载更早的消息</button>' : '');
     const messageHtml = conversation.messages.map((message) => {
       const isUser = message.senderType === 'USER';
       return `<div class="chat-message ${isUser ? 'user' : 'contact'}"><div class="message-avatar">${isUser ? escapeHtml(userProfile().displayName.slice(0, 1)) : escapeHtml(message.senderName.slice(0, 1))}</div><div class="message-body"><div class="message-meta"><span>${escapeHtml(message.senderName)}</span><time>${escapeHtml(formatDateTime(message.createdAt))}</time></div><div class="message-bubble">${escapeHtml(message.content)}</div></div></div>`;
     }).join('');
-    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="${conversation.status.toLowerCase()}">${conversation.status === 'ONLINE' ? '在线' : conversation.status === 'BUSY' ? '忙碌' : '离线'}</span><small>${escapeHtml(conversation.departmentName)}</small></div><div class="message-thread">${messageHtml}</div></div><form class="composer" id="colleague-chat-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 ${escapeHtml(conversation.displayName)}">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(conversation.displayName)} · ${escapeHtml(conversation.status)}</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
+    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="${conversation.status.toLowerCase()}">${conversation.status === 'ONLINE' ? '在线' : conversation.status === 'BUSY' ? '忙碌' : '离线'}</span><small>${escapeHtml(conversation.departmentName)}</small></div><div class="message-thread">${olderBlock}${messageHtml || '<div class="empty-state">暂无消息</div>'}</div></div><form class="composer" id="colleague-chat-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 ${escapeHtml(conversation.displayName)}">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(conversation.displayName)} · ${escapeHtml(conversation.status)}</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
   }
 
   function renderContextCards(name) {
@@ -884,7 +1142,7 @@
     return `<div class="context-card accent"><span>当前对话</span><h3>${escapeHtml(name)}</h3><p>${name === 'IT 助手' ? '可先自助排查，也可以随时转人工。' : '企业内沟通不会自动创建 IT 工单。'}</p></div>${ticket ? `<div class="context-card"><span>最近工单</span><h3>${escapeHtml(ticket.title)}</h3><p><span class="status-tag ${statusClass(ticket.status)}">${escapeHtml(ticket.status)}</span> · ${escapeHtml(ticket.ticketNo)}</p><button class="ghost-button" data-action="open-ticket" data-ticket-id="${escapeHtml(ticket.ticketId)}">查看工单</button></div>` : ''}<div class="context-card"><span>快捷入口</span><div class="quick-links"><button data-action="nav" data-view="CONTACTS">查找同事</button><button data-action="nav" data-view="HISTORY">历史工单</button><button data-action="nav" data-view="WORKSPACE">工作台</button></div></div>`;
   }
 
-  function renderContacts() {
+  function contactResultsHtml() {
     const keyword = state.contactKeyword.trim().toLowerCase();
     const filtered = (state.contacts || []).filter((contact) => !keyword || [contact.displayName, contact.departmentName, contact.email].join(' ').toLowerCase().includes(keyword));
     const total = filtered.length;
@@ -895,18 +1153,29 @@
     const items = filtered.slice(start, start + state.contactsPageSize);
     const rows = items.map((contact) => `<button class="contact-row" data-action="open-contact" data-contact-id="${escapeHtml(contact.contactId)}"><span class="contact-avatar offline">${escapeHtml((contact.displayName || '?').slice(0, 1))}</span><span class="contact-copy"><strong>${escapeHtml(contact.displayName)}</strong><small>${escapeHtml(contact.departmentName || '未分配部门')}</small></span><span class="contact-presence"><i></i>${contact.enabled ? '在职' : '停用'}</span><span class="contact-open">发消息</span></button>`).join('');
     const pager = `<div class="pagination"><span class="pagination-meta">共 ${total} 条 · 每页 ${state.contactsPageSize} 条</span><div class="pagination-controls"><button class="page-button" data-action="contacts-page" data-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>‹</button><span class="page-button active">${page}</span><button class="page-button" data-action="contacts-page" data-page="${page + 1}" ${page === totalPages ? 'disabled' : ''}>›</button></div></div>`;
-    renderShell('CONTACTS', `<section class="page-section"><div class="page-heading"><div><h1>联系人</h1><p>公司内注册用户自动成为联系人，同部门相邻展示</p></div><div class="heading-actions"><input class="text-input contact-search" data-bind="contactKeyword" placeholder="搜索姓名、部门" value="${escapeHtml(state.contactKeyword)}"><button class="ghost-button" data-action="refresh-contacts">刷新</button></div></div><div class="contacts-layout"><div class="contacts-list panel">${rows || '<div class="empty-state">没有匹配的联系人</div>'}</div><aside class="contact-side panel"><div class="contact-side-placeholder"><span>联</span><h3>选择一位同事</h3><p>查看资料或发起企业内聊天。</p></div></aside></div>${pager}</section>`);
+    return `<div class="contacts-layout"><div class="contacts-list panel">${rows || '<div class="empty-state">没有匹配的联系人</div>'}</div><aside class="contact-side panel"><div class="contact-side-placeholder"><span>联</span><h3>选择一位同事</h3><p>查看资料或发起企业内聊天。</p></div></aside></div>${pager}`;
+  }
+
+  function renderContacts() {
+    renderShell('CONTACTS', `<section class="page-section"><div class="page-heading"><div><h1>联系人</h1><p>公司内注册用户自动成为联系人，同部门相邻展示</p></div><div class="heading-actions"><input class="text-input contact-search" data-bind="contactKeyword" placeholder="搜索姓名、部门" value="${escapeHtml(state.contactKeyword)}"><button class="ghost-button" data-action="refresh-contacts">刷新</button></div></div><div class="contacts-results">${contactResultsHtml()}</div></section>`);
   }
 
   function renderWorkspace() {
     const cards = [];
     if (hasItsmAccess()) {
       cards.push({ name: 'ITSM 工单', desc: '在新窗口打开 ITSM 工单处理系统', icon: '工', tone: 'orange', action: 'open-window', url: './index.html?direct=1' });
+    } else {
+      cards.push({ name: 'ITSM 工单', desc: '申请 ITSM 权限后使用', icon: '工', tone: 'orange', action: 'nav', target: 'ITSM' });
     }
-    cards.push({ name: '数鲸看板', desc: '在新窗口打开数鲸看板', icon: '鲸', tone: 'cyan', action: 'open-window', url: './user-portal.html?view=WHALE' });
+    if (hasWhaleAccess()) {
+      cards.push({ name: '数鲸看板', desc: '在新窗口打开数鲸看板', icon: '鲸', tone: 'cyan', action: 'open-window', url: './user-portal.html?view=WHALE' });
+    } else {
+      cards.push({ name: '数鲸看板', desc: '申请数鲸看板权限后使用', icon: '鲸', tone: 'cyan', action: 'nav', target: 'WHALE' });
+    }
+    cards.push({ name: '审批', desc: '查看我的审批与我提交的审批', icon: '审', tone: 'violet', action: 'nav', target: 'APPROVALS' });
     if (hasAdminRole()) {
-      cards.push({ name: '审批', desc: '审批 ITSM 权限与管理员权限申请', icon: '审', tone: 'violet', action: 'nav', target: 'APPROVALS' });
-      cards.push({ name: '员工账号', desc: '管理员工手机号、邮箱与部门', icon: '员', tone: 'green', action: 'nav', target: 'EMPLOYEES' });
+      cards.push({ name: '员工账号', desc: '查询员工、修改手机号/邮箱/部门', icon: '员', tone: 'green', action: 'nav', target: 'EMPLOYEES' });
+      cards.push({ name: '部门管理', desc: '新增、修改、删除部门', icon: '部', tone: 'blue', action: 'nav', target: 'DEPARTMENTS' });
     }
     const cardsHtml = cards.map((card) => {
       const attr = card.action === 'open-window'
@@ -919,12 +1188,12 @@
 
   function renderItsm() {
     const hasAccess = hasItsmAccess();
-    const pending = (state.myRequests || []).find((item) => item.status === 'PENDING');
+    const pending = (state.myRequests || []).find((item) => item.status === 'PENDING' && item.requestType !== 'WHALE_ACCESS');
     let body;
     if (hasAccess) {
       body = `<iframe class="itsm-system-frame" src="./index.html?embedded=1" title="ITSM 工单系统"></iframe>`;
     } else if (pending) {
-      const typeLabel = pending.requestType === 'ADMIN' ? '管理员权限' : 'ITSM 权限';
+      const typeLabel = permissionTypeLabel(pending.requestType);
       body = `
         <div class="itsm-permission-state submitted">
           <div class="permission-state-icon">已</div>
@@ -934,7 +1203,7 @@
         </div>
       `;
     } else if (state.itsmApplication.status === 'REQUESTING') {
-      const typeLabel = state.itsmApplication.requestType === 'ADMIN' ? '管理员权限' : 'ITSM 权限';
+      const typeLabel = permissionTypeLabel(state.itsmApplication.requestType);
       body = `
         <div class="itsm-permission-state requesting">
           <div class="permission-state-icon">权</div>
@@ -965,30 +1234,73 @@
   }
 
   function renderApprovals() {
-    const rows = (state.approvals || []).map((item) => `
+    const isAdmin = hasAdminRole();
+    const myApprovals = isAdmin ? (state.approvals || []) : [];
+    const submitted = state.myRequests || [];
+    const statusLabels = { PENDING: '待审批', APPROVED: '已批准', REJECTED: '已驳回' };
+
+    const myApprovalRows = myApprovals.map((item) => {
+      const actions = item.status === 'PENDING'
+        ? `<div class="approval-actions">
+            <button class="primary-button" data-action="approve-request" data-request-id="${escapeHtml(item.requestId)}">批准</button>
+            <button class="ghost-button" data-action="reject-request" data-request-id="${escapeHtml(item.requestId)}">驳回</button>
+          </div>`
+        : `<span class="status-chip ${item.status === 'APPROVED' ? 'ok' : 'info'}">${escapeHtml(statusLabels[item.status] || item.status)}</span>`;
+      return `
+        <div class="approval-row">
+          <div class="approval-info">
+            <strong>${escapeHtml(item.requesterName || item.requesterId)}</strong>
+            <span class="muted">${escapeHtml(item.requesterId)} · ${escapeHtml(permissionTypeLabel(item.requestType))} · ${escapeHtml(formatDateTime(item.createdAt))}</span>
+            <p>${escapeHtml(item.reason || '无申请原因')}</p>
+          </div>
+          ${actions}
+        </div>
+      `;
+    }).join('');
+
+    const submittedRows = submitted.map((item) => `
       <div class="approval-row">
         <div class="approval-info">
-          <strong>${escapeHtml(item.requesterName || item.requesterId)}</strong>
-          <span class="muted">${escapeHtml(item.requesterId)} · ${escapeHtml(item.requestType === 'ADMIN' ? '管理员权限' : 'ITSM 权限')}</span>
+          <strong>${escapeHtml(permissionTypeLabel(item.requestType))}</strong>
+          <span class="muted">提交时间 · ${escapeHtml(formatDateTime(item.createdAt))}</span>
           <p>${escapeHtml(item.reason || '无申请原因')}</p>
         </div>
-        <div class="approval-actions">
-          <button class="primary-button" data-action="approve-request" data-request-id="${escapeHtml(item.requestId)}">批准</button>
-          <button class="ghost-button" data-action="reject-request" data-request-id="${escapeHtml(item.requestId)}">驳回</button>
-        </div>
+        <span class="status-chip ${item.status === 'APPROVED' ? 'ok' : 'info'}">${escapeHtml(statusLabels[item.status] || item.status)}</span>
       </div>
     `).join('');
-    renderShell('APPROVALS', `<section class="page-section"><div class="page-heading"><div><h1>审批</h1><p>审批普通用户的 ITSM 权限或管理员权限申请</p></div><span class="status-chip info">${state.approvals.length} 条待审批</span></div><div class="panel approval-list">${rows || '<div class="empty-state">暂无待审批申请</div>'}</div></section>`);
+
+    const tab = state.approvalTab || (isAdmin ? 'mine' : 'submitted');
+    const body = tab === 'mine'
+      ? `<div class="panel approval-list">${myApprovalRows || '<div class="empty-state">暂无审批记录</div>'}</div>`
+      : `<div class="panel approval-list">${submittedRows || '<div class="empty-state">暂无我提交的审批</div>'}</div>`;
+
+    renderShell('APPROVALS', `
+      <section class="page-section">
+        <div class="page-heading"><div><h1>审批</h1><p>查看我的审批与我提交的审批</p></div></div>
+        <div class="approval-tabs">
+          <button class="approval-tab ${tab === 'mine' ? 'active' : ''}" data-action="approval-tab" data-tab="mine">我的审批${isAdmin ? ` (${myApprovals.length})` : ''}</button>
+          <button class="approval-tab ${tab === 'submitted' ? 'active' : ''}" data-action="approval-tab" data-tab="submitted">我提交的审批 (${submitted.length})</button>
+        </div>
+        ${body}
+      </section>
+    `);
   }
 
   function renderEmployees() {
+    const roleLabels = { USER: '普通用户', SUPPORT_AGENT: '普通客服', SUPPORT_ADMIN: '管理员客服', SUPERVISOR: '主管/质检' };
+    const roleLabelOf = (emp) => (emp.roles && emp.roles.length ? emp.roles.map((r) => roleLabels[r] || r).join(' / ') : '普通用户');
+
+    const deptOptions = (state.departments || []).map((d) => `<option value="${escapeHtml(d.name)}" ${state.employeeDepartmentFilter === d.name ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
+    const roleOptions = ['USER', 'SUPPORT_AGENT', 'SUPPORT_ADMIN', 'SUPERVISOR'].map((r) => `<option value="${r}" ${state.employeeRoleFilter === r ? 'selected' : ''}>${roleLabels[r] || r}</option>`).join('');
+
     const rows = (state.employees || []).map((emp) => {
       if (state.employeeEditingId === emp.userId) {
+        const editDeptOptions = (state.departments || []).map((d) => `<option value="${escapeHtml(d.name)}" ${state.employeeForm.departmentName === d.name ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
         return `
           <div class="employee-row editing">
-            <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)}</span></div>
+            <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)} · ${escapeHtml(roleLabelOf(emp))}</span></div>
             <div class="employee-fields">
-              <input class="text-input" data-bind="employeeDepartment" placeholder="部门" value="${escapeHtml(state.employeeForm.departmentName)}">
+              <select class="text-input" data-bind="employeeDepartment"><option value="">未分配部门</option>${editDeptOptions}</select>
               <input class="text-input" data-bind="employeePhone" placeholder="手机号" value="${escapeHtml(state.employeeForm.phone)}">
               <input class="text-input" data-bind="employeeEmail" placeholder="邮箱" value="${escapeHtml(state.employeeForm.email)}">
             </div>
@@ -1001,7 +1313,7 @@
       }
       return `
         <div class="employee-row">
-          <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)}</span></div>
+          <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)} · ${escapeHtml(roleLabelOf(emp))}</span></div>
           <div class="employee-fields">
             <span>${escapeHtml(emp.departmentName || '未分配部门')}</span>
             <span>${escapeHtml(emp.phone || '无手机号')}</span>
@@ -1011,7 +1323,78 @@
         </div>
       `;
     }).join('');
-    renderShell('EMPLOYEES', `<section class="page-section"><div class="page-heading"><div><h1>员工账号</h1><p>管理员工的手机号、邮箱与部门（仅管理员）</p></div><button class="ghost-button" data-action="refresh-employees">刷新</button></div><div class="panel employee-list">${rows || '<div class="empty-state">暂无员工</div>'}</div></section>`);
+
+    const totalPages = Math.max(1, Math.ceil((state.employeesTotal || 0) / (state.employeesPageSize || 10)));
+    const page = Math.min(totalPages, Math.max(1, state.employeesPage || 1));
+    const pager = `<div class="pagination"><span class="pagination-meta">共 ${state.employeesTotal} 条 · 第 ${page}/${totalPages} 页</span><div class="pagination-controls"><button class="page-button" data-action="employee-page" data-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>‹</button><span class="page-button active">${page}</span><button class="page-button" data-action="employee-page" data-page="${page + 1}" ${page === totalPages ? 'disabled' : ''}>›</button></div></div>`;
+
+    renderShell('EMPLOYEES', `
+      <section class="page-section">
+        <div class="page-heading"><div><h1>员工账号</h1><p>查询员工信息、修改手机号/邮箱/部门（仅管理员）</p></div><button class="ghost-button" data-action="refresh-employees">刷新</button></div>
+
+        <div class="employee-filter-bar panel">
+          <input class="text-input" data-bind="employeeKeyword" placeholder="搜索姓名 / 工号 / 邮箱 / 手机号" value="${escapeHtml(state.employeeKeyword)}">
+          <select class="text-input" data-bind="employeeDepartmentFilter"><option value="">全部部门</option>${deptOptions}</select>
+          <select class="text-input" data-bind="employeeRoleFilter"><option value="">全部角色</option>${roleOptions}</select>
+          <button class="primary-button" data-action="search-employees">查询</button>
+          <button class="ghost-button" data-action="reset-employee-filter">重置</button>
+        </div>
+
+        <div class="panel employee-list">${rows || '<div class="empty-state">没有匹配的员工</div>'}</div>
+        ${pager}
+      </section>
+    `);
+  }
+
+  function renderDepartments() {
+    const deptRows = (state.departments || []).map((dept) => {
+      if (state.departmentEditingId === dept.departmentId) {
+        return `
+          <div class="department-row editing">
+            <div class="department-fields">
+              <input class="text-input" data-bind="departmentName" placeholder="部门名称" value="${escapeHtml(state.departmentForm.name)}">
+              <input class="text-input" data-bind="departmentDescription" placeholder="描述（可选）" value="${escapeHtml(state.departmentForm.description)}">
+              <label class="checkbox-label"><input type="checkbox" data-bind="departmentEnabled" ${state.departmentForm.enabled ? 'checked' : ''}> 启用</label>
+            </div>
+            <div class="department-actions">
+              <button class="primary-button" data-action="save-department">保存</button>
+              <button class="ghost-button" data-action="cancel-department-edit">取消</button>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="department-row">
+          <div class="department-copy"><strong>${escapeHtml(dept.name)}</strong><span class="muted">${escapeHtml(dept.description || '')}</span></div>
+          <span class="status-chip ${dept.enabled ? 'ok' : ''}">${dept.enabled ? '启用' : '停用'}</span>
+          <div class="department-actions">
+            <button class="ghost-button" data-action="edit-department" data-department-id="${escapeHtml(dept.departmentId)}">编辑</button>
+            <button class="ghost-button danger" data-action="delete-department" data-department-id="${escapeHtml(dept.departmentId)}">删除</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const departmentForm = state.departmentEditingId === '__new__' ? `
+      <div class="department-row editing">
+        <div class="department-fields">
+          <input class="text-input" data-bind="departmentName" placeholder="部门名称" value="${escapeHtml(state.departmentForm.name)}">
+          <input class="text-input" data-bind="departmentDescription" placeholder="描述（可选）" value="${escapeHtml(state.departmentForm.description)}">
+          <label class="checkbox-label"><input type="checkbox" data-bind="departmentEnabled" ${state.departmentForm.enabled ? 'checked' : ''}> 启用</label>
+        </div>
+        <div class="department-actions">
+          <button class="primary-button" data-action="save-department">保存</button>
+          <button class="ghost-button" data-action="cancel-department-edit">取消</button>
+        </div>
+      </div>
+    ` : '';
+
+    renderShell('DEPARTMENTS', `
+      <section class="page-section">
+        <div class="page-heading"><div><h1>部门管理</h1><p>新增、修改、删除部门（有员工的部门不可删除）</p></div><button class="primary-button" data-action="add-department">新增部门</button></div>
+        <div class="panel department-list">${departmentForm}${deptRows || '<div class="empty-state">暂无部门</div>'}</div>
+      </section>
+    `);
   }
 
   function renderHistory() {
@@ -1020,7 +1403,52 @@
     renderShell('HISTORY', `<section class="page-section"><div class="page-heading"><div><h1>历史消息</h1><p>仅展示最近 30 天的用户工单信息</p></div><span class="status-chip info">${tickets.length} 条 · 最近30天</span></div><div class="history-list panel">${rows || '<div class="empty-state">最近 30 天暂无工单</div>'}</div></section>`);
   }
 
+  function renderWhalePermission() {
+    const pending = (state.myRequests || []).find((item) => item.status === 'PENDING' && item.requestType === 'WHALE_ACCESS');
+    let body;
+    if (pending) {
+      body = `
+        <div class="itsm-permission-state submitted">
+          <div class="permission-state-icon">鲸</div>
+          <h2>数鲸看板权限申请已提交</h2>
+          <p>管理员审批通过后会为你开通数鲸看板，请稍后重新登录查看。</p>
+          <div class="permission-state-actions"><button class="ghost-button" data-action="nav" data-view="MESSAGES">返回首页</button></div>
+        </div>
+      `;
+    } else if (state.itsmApplication.status === 'REQUESTING' && state.itsmApplication.requestType === 'WHALE_ACCESS') {
+      body = `
+        <div class="itsm-permission-state requesting">
+          <div class="permission-state-icon">鲸</div>
+          <h2>申请数鲸看板权限</h2>
+          <p>提交后由管理员审批，审批通过后重新登录生效。</p>
+          <form id="itsm-permission-form" class="itsm-permission-form">
+            <label>申请账号</label><input class="text-input" value="${escapeHtml(userProfile().displayName)}" readonly>
+            <label for="itsm-permission-reason">申请原因</label><textarea id="itsm-permission-reason" class="textarea-input" name="reason" placeholder="请说明申请原因">${escapeHtml(state.itsmApplication.reason)}</textarea>
+            <div class="permission-form-actions"><button type="button" class="ghost-button" data-action="cancel-itsm-permission">取消</button><button type="submit" class="primary-button">提交申请</button></div>
+          </form>
+        </div>
+      `;
+    } else {
+      body = `
+        <div class="itsm-permission-state denied">
+          <div class="permission-state-icon">鲸</div>
+          <h2>您暂时没有数鲸看板权限</h2>
+          <p>数鲸看板默认仅管理员可用，普通用户需提交审批，管理员批准后即可查看。</p>
+          <div class="permission-state-actions">
+            <button class="ghost-button" data-action="nav" data-view="MESSAGES">返回首页</button>
+            <button class="primary-button" data-action="open-whale-permission">申请数鲸看板权限</button>
+          </div>
+        </div>
+      `;
+    }
+    renderShell('WHALE', `<section class="itsm-system-container"><div class="itsm-system-toolbar"><div><span class="status-chip info">数鲸看板</span><small>看板权限申请与查看</small></div></div>${body}</section>`);
+  }
+
   function renderWhale() {
+    if (!hasWhaleAccess()) {
+      renderWhalePermission();
+      return;
+    }
     const workload = DATA.whaleWorkload || [];
     const distribution = DATA.whaleDistribution || [];
     const createdTotal = workload.reduce((sum, item) => sum + item.draftPerDay, 0);
@@ -1059,6 +1487,7 @@
       state.view = target.dataset.view || 'MESSAGES';
       state.chat = { type: 'ASSISTANT', id: 'assistant' };
       state.portalSearch = '';
+      if (state.view === 'MESSAGES') state.scrollChatToBottomPending = true;
       render();
       return;
     }
@@ -1099,6 +1528,13 @@
       render();
       return;
     }
+    if (action === 'open-whale-permission') {
+      state.itsmApplication.status = 'REQUESTING';
+      state.itsmApplication.reason = '';
+      state.itsmApplication.requestType = 'WHALE_ACCESS';
+      render();
+      return;
+    }
     if (action === 'open-oa-form') {
       state.itsmApplication.status = 'REQUESTING';
       state.itsmApplication.reason = '';
@@ -1112,31 +1548,23 @@
       let conversation = state.colleagueConversations.find((item) => item.contactId === admin.contactId);
       if (!conversation) {
         conversation = {
-          conversationId: 'col_con_admin_' + Date.now(),
+          conversationId: 'col_con_' + admin.userId,
           contactId: admin.contactId,
           userId: admin.userId,
           displayName: admin.displayName,
           departmentName: admin.departmentName || '客服管理部',
           status: 'ONLINE',
-          lastMessage: '请联系我处理 ITSM 权限申请',
+          lastMessage: '开始聊天',
           lastMessageAt: nowIso(),
           unreadCount: 0,
-          messages: [
-            {
-              messageId: 'col_msg_admin_' + Date.now(),
-              senderType: 'SYSTEM',
-              senderName: '系统',
-              content: '已为你打开与 ' + admin.displayName + ' 的会话，可说明 ITSM 权限申请事项。',
-              createdAt: nowIso()
-            }
-          ]
+          messages: [],
+          hasMore: false,
+          loadingOlder: false
         };
         state.colleagueConversations.unshift(conversation);
       }
-      state.view = 'MESSAGES';
-      state.chat = { type: 'COLLEAGUE', id: conversation.conversationId };
       state.colleagueDraft = '你好，管理员。我提交了 ITSM 权限申请，麻烦帮忙添加权限。';
-      render();
+      openColleagueChat(conversation);
       return;
     }
     if (action === 'cancel-itsm-permission') {
@@ -1154,6 +1582,11 @@
       rejectRequest(target.dataset.requestId);
       return;
     }
+    if (action === 'approval-tab') {
+      state.approvalTab = target.dataset.tab || 'mine';
+      render();
+      return;
+    }
     if (action === 'edit-employee') {
       startEditEmployee(target.dataset.userId);
       return;
@@ -1167,20 +1600,59 @@
       return;
     }
     if (action === 'refresh-employees') {
+      Promise.all([loadEmployees(), loadDepartments()]).finally(() => render());
+      return;
+    }
+    if (action === 'search-employees') {
+      state.employeesPage = 1;
       loadEmployees().finally(() => render());
+      return;
+    }
+    if (action === 'reset-employee-filter') {
+      state.employeeKeyword = '';
+      state.employeeDepartmentFilter = '';
+      state.employeeRoleFilter = '';
+      state.employeesPage = 1;
+      loadEmployees().finally(() => render());
+      return;
+    }
+    if (action === 'employee-page') {
+      state.employeesPage = Number(target.dataset.page || 1);
+      loadEmployees().finally(() => render());
+      return;
+    }
+    if (action === 'add-department') {
+      startAddDepartment();
+      return;
+    }
+    if (action === 'edit-department') {
+      startEditDepartment(target.dataset.departmentId);
+      return;
+    }
+    if (action === 'save-department') {
+      saveDepartment();
+      return;
+    }
+    if (action === 'delete-department') {
+      deleteDepartment(target.dataset.departmentId);
+      return;
+    }
+    if (action === 'cancel-department-edit') {
+      cancelEditDepartment();
       return;
     }
     if (action === 'open-chat') {
       state.view = 'MESSAGES';
-      state.chat = { type: target.dataset.type || 'ASSISTANT', id: target.dataset.id || 'assistant' };
       state.colleagueDraft = '';
-      if (state.chat.type === 'COLLEAGUE') {
-        const conv = state.colleagueConversations.find((item) => item.conversationId === state.chat.id);
+      if (target.dataset.type === 'COLLEAGUE') {
+        const conv = state.colleagueConversations.find((item) => item.conversationId === target.dataset.id);
         if (conv) {
-          conv.lastReadMessageId = conv.messages.length ? Number(conv.messages[conv.messages.length - 1].messageId) : 0;
-          conv.unreadCount = 0;
+          openColleagueChat(conv);
+          return;
         }
       }
+      state.chat = { type: target.dataset.type || 'ASSISTANT', id: target.dataset.id || 'assistant' };
+      state.scrollChatToBottomPending = true;
       render();
       return;
     }
@@ -1210,13 +1682,18 @@
           lastMessage: '开始聊天',
           lastMessageAt: nowIso(),
           unreadCount: 0,
-          messages: []
+          messages: [],
+          hasMore: false,
+          loadingOlder: false
         };
         state.colleagueConversations.unshift(conversation);
       }
-      openColleagueConversation(conversation);
-      render();
-      loadColleagueMessages(conversation).then(() => render());
+      openColleagueChat(conversation);
+      return;
+    }
+    if (action === 'load-older-messages') {
+      const conv = state.colleagueConversations.find((item) => item.conversationId === state.chat.id);
+      if (conv) loadOlderColleagueMessages(conv);
       return;
     }
     if (action === 'category') {
@@ -1414,7 +1891,10 @@
           state.loggedIn = true;
           render();
           showToast('登录成功', `欢迎 ${data.user.displayName}`, 'success');
-          loadRemoteData().finally(() => render());
+          loadRemoteData().finally(() => {
+            state.scrollChatToBottomPending = true;
+            render();
+          });
         })
         .catch((error) => showToast('登录失败', error.message, 'error'));
       return;
@@ -1532,16 +2012,58 @@
       state.employeeForm.email = target.value;
       return;
     }
+    if (target.dataset && target.dataset.bind === 'employeeKeyword') {
+      state.employeeKeyword = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'departmentName') {
+      state.departmentForm.name = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'departmentDescription') {
+      state.departmentForm.description = target.value;
+      return;
+    }
     if (target.dataset && (target.dataset.bind === 'portalSearch' || target.dataset.bind === 'contactKeyword')) {
       state[target.dataset.bind] = target.value;
+      if (target.dataset.bind === 'contactKeyword') {
+        const resultsEl = document.querySelector('.contacts-results');
+        if (resultsEl) {
+          resultsEl.innerHTML = contactResultsHtml();
+          return;
+        }
+      }
       render();
-      if (target.dataset.bind === 'portalSearch') window.setTimeout(() => { const input = document.querySelector('.search-box input'); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }, 0);
+      if (target.dataset.bind === 'portalSearch') {
+        window.setTimeout(() => { const input = document.querySelector('.search-box input'); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }, 0);
+      }
+    }
+  }
+
+  function handleChange(event) {
+    const target = event.target;
+    if (target.dataset && target.dataset.bind === 'employeeDepartment') {
+      state.employeeForm.departmentName = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'employeeDepartmentFilter') {
+      state.employeeDepartmentFilter = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'employeeRoleFilter') {
+      state.employeeRoleFilter = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'departmentEnabled') {
+      state.departmentForm.enabled = !!target.checked;
+      return;
     }
   }
 
   document.addEventListener('click', handleClick);
   document.addEventListener('submit', handleSubmit);
   document.addEventListener('input', handleInput);
+  document.addEventListener('change', handleChange);
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'ITSM_CLOSE') {
       state.view = 'WORKSPACE';
@@ -1592,21 +2114,52 @@
     state.view = urlView;
   }
 
+  function updateNavBadge() {
+    const totalUnread = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
+    const navButton = document.querySelector('.portal-nav-button[data-view="MESSAGES"]');
+    if (!navButton) return;
+    const existing = navButton.querySelector('.portal-nav-count');
+    if (totalUnread > 0) {
+      if (existing) existing.textContent = String(totalUnread);
+      else navButton.insertAdjacentHTML('beforeend', `<span class="portal-nav-count accent">${totalUnread}</span>`);
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+
   let lastSidebarSignature = '';
   window.setInterval(() => {
     if (!state.loggedIn) return;
-    Promise.all(state.colleagueConversations.map((conv) => loadColleagueMessages(conv))).then(() => {
-      const signature = state.colleagueConversations.map((c) => c.userId + ':' + (c.messages.length) + ':' + (c.unreadCount || 0)).join('|');
+    loadColleagueConversations().then(async () => {
+      const openColleague = state.view === 'MESSAGES' && state.chat.type === 'COLLEAGUE'
+        ? state.colleagueConversations.find((item) => item.conversationId === state.chat.id)
+        : null;
+      let openChatHasNew = false;
+      if (openColleague && openColleague.unreadCount > 0) {
+        await loadColleagueMessages(openColleague);
+        await markColleagueRead(openColleague.userId);
+        openColleague.unreadCount = 0;
+        openChatHasNew = true;
+      }
+      const signature = state.colleagueConversations.map((c) => c.userId + ':' + (c.lastMessage || '') + ':' + (c.unreadCount || 0)).join('|');
       if (signature !== lastSidebarSignature) {
         lastSidebarSignature = signature;
-        if (state.view === 'MESSAGES') render();
+        if (state.view === 'MESSAGES') {
+          if (openChatHasNew) state.scrollChatToBottomPending = true;
+          render();
+        } else {
+          updateNavBadge();
+        }
       }
     });
   }, 5000);
 
   if (state.loggedIn) {
     render();
-    loadRemoteData().finally(() => render());
+    Promise.all([loadMe(), loadRemoteData()]).finally(() => {
+      state.scrollChatToBottomPending = true;
+      render();
+    });
   } else {
     render();
   }
