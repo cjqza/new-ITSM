@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ITSM 登录 / 注册</title>
+  <link rel="stylesheet" href="./register.css">
+</head>
+<body>
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <div class="auth-brand">
+        <span class="brand-mark">ITSM</span>
+        <div>
+          <strong>企业服务台</strong>
+          <small>前后端联调 · 登录与注册</small>
+        </div>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">登录</button>
+        <button class="auth-tab" data-tab="register">注册</button>
+      </div>
+
+      <!-- 登录 -->
+      <form id="login-form" class="auth-form active" autocomplete="off">
+        <label>租户 ID</label>
+        <input name="tenantId" value="tenant_001" required>
+        <label>账号</label>
+        <input name="account" placeholder="用户名" autocomplete="username" required>
+        <label>密码</label>
+        <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
+        <button type="submit" class="primary-button">登录</button>
+        <p class="form-hint">默认种子账号：zhangsan / P@ssw0rd123</p>
+      </form>
+
+      <!-- 注册 -->
+      <form id="register-form" class="auth-form" autocomplete="off">
+        <label>租户 ID</label>
+        <input name="tenantId" value="tenant_001" required>
+        <label>用户名</label>
+        <input name="username" placeholder="登录账号，3-64 位" autocomplete="username" required>
+        <label>手机号</label>
+        <input name="phone" placeholder="用于接收验证码" required>
+        <label>验证码</label>
+        <div class="code-row">
+          <input name="code" placeholder="6 位验证码" required>
+          <button type="button" id="send-code-button" class="ghost-button">获取验证码</button>
+        </div>
+        <p id="code-hint" class="form-hint hidden"></p>
+        <label>密码</label>
+        <input name="password" type="password" placeholder="8-64 位" autocomplete="new-password" required>
+        <label>确认密码</label>
+        <input name="confirmPassword" type="password" placeholder="再次输入密码" autocomplete="new-password" required>
+        <button type="submit" class="primary-button">注册</button>
+      </form>
+
+      <div id="result" class="result hidden"></div>
+    </section>
+  </main>
+  <script src="./register.js"></script>
+</body>
+</html>
