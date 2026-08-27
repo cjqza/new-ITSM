@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -59,10 +60,10 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.TENANT_FORBIDDEN, "tenant is disabled or not found"));
 
         String loginName = resolveLoginName(request);
-        AuthCredential credential = credentialRepository.findByTenantIdAndLoginName(tenant.tenantId(), loginName)
+        AuthCredential credential = resolveCredential(tenant.tenantId(), loginName, request.grantType())
                 .orElseThrow(() -> {
                     loginAuditRepository.record(tenantId, null, loginName, "FAIL", "credential_not_found", clientIp, userAgent, traceId);
-                    return new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIAL, "invalid username or password");
+                    return new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIAL, "invalid account or password");
                 });
 
         if (!"ACTIVE".equalsIgnoreCase(credential.status())) {
@@ -250,6 +251,17 @@ public class AuthService {
         if (!Objects.equals(ssoCode, properties.getSeed().getSsoCode())) {
             throw new BusinessException(ErrorCode.TOKEN_INVALID, "invalid sso code");
         }
+    }
+
+    private Optional<AuthCredential> resolveCredential(String tenantId, String account, String grantType) {
+        if ("SSO_CODE".equalsIgnoreCase(grantType)) {
+            return credentialRepository.findByTenantIdAndLoginName(tenantId, account);
+        }
+        if (account != null && account.contains("@")) {
+            return userRepository.findUserByTenantAndEmail(tenantId, account)
+                    .flatMap(user -> credentialRepository.findByTenantIdAndUserId(tenantId, user.userId()));
+        }
+        return credentialRepository.findByTenantIdAndUserId(tenantId, account);
     }
 
     private String resolveLoginName(AuthLoginRequest request) {

@@ -42,6 +42,7 @@ public class AuthRegisterService {
     private final AuthTenantRepository tenantRepository;
     private final AuthCredentialRepository credentialRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final UserAccountGenerator accountGenerator;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public AuthRegisterService(StringRedisTemplate redisTemplate,
@@ -49,13 +50,15 @@ public class AuthRegisterService {
                                ItsmAuthProperties authProperties,
                                AuthTenantRepository tenantRepository,
                                AuthCredentialRepository credentialRepository,
-                               JdbcTemplate jdbcTemplate) {
+                               JdbcTemplate jdbcTemplate,
+                               UserAccountGenerator accountGenerator) {
         this.redisTemplate = redisTemplate;
         this.properties = properties;
         this.passwordEncoder = new BCryptPasswordEncoder(authProperties.getBcryptStrength());
         this.tenantRepository = tenantRepository;
         this.credentialRepository = credentialRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.accountGenerator = accountGenerator;
     }
 
     /**
@@ -88,16 +91,17 @@ public class AuthRegisterService {
         ensurePhoneAvailable(tenantId, request.phone());
         validateAndConsumeCode(tenantId, request.phone(), request.code());
 
-        String userId = "usr_" + UUID.randomUUID().toString().replace("-", "");
+        String userId = accountGenerator.nextUserId(tenantId);
+        String email = accountGenerator.generateEmail(tenantId, request.username());
         try {
-            insertUser(userId, tenantId, request.username(), request.phone());
+            insertUser(userId, tenantId, request.username(), request.phone(), email);
             insertCredential(userId, tenantId, request.username(), request.password());
             assignDefaultRole(userId, tenantId);
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "用户名或手机号已被占用");
         }
 
-        return new AuthRegisterResponse(userId, tenantId, request.username(), request.username());
+        return new AuthRegisterResponse(userId, tenantId, request.username(), request.username(), email);
     }
 
     private void requireEnabledTenant(String tenantId) {
@@ -144,16 +148,17 @@ public class AuthRegisterService {
         }
     }
 
-    private void insertUser(String userId, String tenantId, String username, String phone) {
+    private void insertUser(String userId, String tenantId, String username, String phone, String email) {
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user (user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled)
-                        VALUES (?, ?, ?, NULL, ?, NULL, 1)
+                        VALUES (?, ?, ?, NULL, ?, ?, 1)
                         """,
                 userId,
                 tenantId,
                 username,
-                phone
+                phone,
+                email
         );
     }
 

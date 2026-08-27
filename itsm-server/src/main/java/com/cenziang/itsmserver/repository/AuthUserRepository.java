@@ -87,4 +87,27 @@ public class AuthUserRepository {
         );
         return users.stream().findFirst();
     }
+
+    public Optional<AuthUser> findUserByTenantAndEmail(String tenantId, String email) {
+        List<AuthUser> users = jdbcTemplate.query(
+                """
+                        SELECT user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled
+                        FROM app_user
+                        WHERE tenant_id = ? AND contact_email = ?
+                        LIMIT 1
+                        """,
+                (rs, rowNum) -> new AuthUser(
+                        rs.getString("user_id"),
+                        rs.getString("tenant_id"),
+                        rs.getString("display_name"),
+                        rs.getString("department_name"),
+                        rs.getString("contact_phone"),
+                        rs.getString("contact_email"),
+                        rs.getBoolean("enabled")
+                ),
+                tenantId,
+                email
+        );
+        return users.stream().findFirst();
+    }
 }

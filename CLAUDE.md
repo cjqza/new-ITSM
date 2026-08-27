@@ -35,7 +35,7 @@ mvn -pl itsm-server -Dtest=ItsmServerApplicationTests#contextLoads test
 
 There is currently only one test — a `@SpringBootTest` context-load test. It disables seed data via `@TestPropertySource(properties = "itsm.auth.seed.enabled=false")`.
 
-Runtime defaults live in `itsm-server/src/main/resources/application.yaml`: MySQL `jdbc:mysql://localhost:3306/itsm` (root/1234), Flyway enabled (`classpath:db/migration`, `baseline-on-migrate` + `validate-on-migrate`), Swagger UI at `/swagger-ui.html`, api-docs at `/v3/api-docs`. A seeded dev login is `tenant_001` / `zhangsan` / `P@ssw0rd123` (configurable under `itsm.auth.seed.*`).
+Runtime defaults live in `itsm-server/src/main/resources/application.yaml`: MySQL `jdbc:mysql://localhost:3306/itsm` (root/1234), Flyway enabled (`classpath:db/migration`, `baseline-on-migrate` + `validate-on-migrate`), Swagger UI at `/swagger-ui.html`, api-docs at `/v3/api-docs`. A seeded dev login is tenant `cza` / 工号 `000003`（张三）/ `P@ssw0rd123` (configurable under `itsm.auth.seed.*`).
 
 ## Architecture
 

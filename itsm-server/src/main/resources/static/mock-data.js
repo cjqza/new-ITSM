@@ -2,8 +2,8 @@ window.ITSM_DEMO_DATA = {
   appName: "ITSM 前端实现",
   appVersion: "v0.1",
   tenant: {
-    tenantId: "tenant_001",
-    tenantName: "示例企业"
+    tenantId: "cza",
+    tenantName: "cza集团"
   },
   profiles: {
     user: {
@@ -20,13 +20,13 @@ window.ITSM_DEMO_DATA = {
           tokenType: "Bearer",
           expiresIn: 7200,
           user: {
-            userId: "usr_10001",
+            userId: "000003",
             displayName: "张三",
             departmentName: "技术支持部"
           },
           tenant: {
-            tenantId: "tenant_001",
-            tenantName: "示例企业"
+            tenantId: "cza",
+            tenantName: "cza集团"
           },
           roles: ["USER"],
           permissionsVersion: "perm_20260825_01"
@@ -38,10 +38,10 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_10001",
+          userId: "000003",
           displayName: "张三",
           departmentName: "技术支持部",
-          tenantId: "tenant_001",
+          tenantId: "cza",
           roles: ["USER"],
           permissionsVersion: "perm_20260825_01"
         },
@@ -52,8 +52,8 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_10001",
-          tenantId: "tenant_001",
+          userId: "000003",
+          tenantId: "cza",
           roles: [
             {
               roleId: "role_user",
@@ -74,7 +74,7 @@ window.ITSM_DEMO_DATA = {
           menus: ["HOME", "TICKET"],
           dataScope: {
             scopeType: "SELF",
-            userIds: ["usr_10001"]
+            userIds: ["000003"]
           },
           permissionsVersion: "perm_20260825_01"
         },
@@ -96,13 +96,13 @@ window.ITSM_DEMO_DATA = {
           tokenType: "Bearer",
           expiresIn: 7200,
           user: {
-            userId: "usr_support_01",
+            userId: "000002",
             displayName: "客服一",
             departmentName: "一线支持组"
           },
           tenant: {
-            tenantId: "tenant_001",
-            tenantName: "示例企业"
+            tenantId: "cza",
+            tenantName: "cza集团"
           },
           roles: ["SUPPORT_AGENT"],
           permissionsVersion: "perm_20260825_01"
@@ -114,10 +114,10 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_support_01",
+          userId: "000002",
           displayName: "客服一",
           departmentName: "一线支持组",
-          tenantId: "tenant_001",
+          tenantId: "cza",
           roles: ["SUPPORT_AGENT"],
           permissionsVersion: "perm_20260825_01"
         },
@@ -128,8 +128,8 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_support_01",
-          tenantId: "tenant_001",
+          userId: "000002",
+          tenantId: "cza",
           roles: [
             {
               roleId: "role_support_agent",
@@ -170,13 +170,13 @@ window.ITSM_DEMO_DATA = {
           tokenType: "Bearer",
           expiresIn: 7200,
           user: {
-            userId: "usr_admin_01",
+            userId: "000001",
             displayName: "管理员",
             departmentName: "客服管理部"
           },
           tenant: {
-            tenantId: "tenant_001",
-            tenantName: "示例企业"
+            tenantId: "cza",
+            tenantName: "cza集团"
           },
           roles: ["SUPPORT_ADMIN"],
           permissionsVersion: "perm_20260825_02"
@@ -188,10 +188,10 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_admin_01",
+          userId: "000001",
           displayName: "管理员",
           departmentName: "客服管理部",
-          tenantId: "tenant_001",
+          tenantId: "cza",
           roles: ["SUPPORT_ADMIN"],
           permissionsVersion: "perm_20260825_02"
         },
@@ -202,8 +202,8 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_admin_01",
-          tenantId: "tenant_001",
+          userId: "000001",
+          tenantId: "cza",
           roles: [
             {
               roleId: "role_support_admin",
@@ -249,13 +249,13 @@ window.ITSM_DEMO_DATA = {
           tokenType: "Bearer",
           expiresIn: 7200,
           user: {
-            userId: "usr_supervisor_01",
+            userId: "000004",
             displayName: "主管",
             departmentName: "质检中心"
           },
           tenant: {
-            tenantId: "tenant_001",
-            tenantName: "示例企业"
+            tenantId: "cza",
+            tenantName: "cza集团"
           },
           roles: ["SUPERVISOR"],
           permissionsVersion: "perm_20260825_01"
@@ -267,10 +267,10 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_supervisor_01",
+          userId: "000004",
           displayName: "主管",
           departmentName: "质检中心",
-          tenantId: "tenant_001",
+          tenantId: "cza",
           roles: ["SUPERVISOR"],
           permissionsVersion: "perm_20260825_01"
         },
@@ -281,8 +281,8 @@ window.ITSM_DEMO_DATA = {
         code: "SUCCESS",
         message: "success",
         data: {
-          userId: "usr_supervisor_01",
-          tenantId: "tenant_001",
+          userId: "000004",
+          tenantId: "cza",
           roles: [
             {
               roleId: "role_supervisor",
@@ -314,8 +314,8 @@ window.ITSM_DEMO_DATA = {
   ],
   contacts: [
     {
-      contactId: "usr_contact_01",
-      userId: "usr_20002",
+      contactId: "000005",
+      userId: "000006",
       displayName: "李四",
       departmentName: "人力资源部",
       positionName: "人事专员",
@@ -324,8 +324,8 @@ window.ITSM_DEMO_DATA = {
       phone: "***********"
     },
     {
-      contactId: "usr_contact_02",
-      userId: "usr_20003",
+      contactId: "000007",
+      userId: "000008",
       displayName: "王五",
       departmentName: "财务部",
       positionName: "财务专员",
@@ -334,8 +334,8 @@ window.ITSM_DEMO_DATA = {
       phone: "***********"
     },
     {
-      contactId: "usr_contact_03",
-      userId: "usr_20004",
+      contactId: "000009",
+      userId: "000010",
       displayName: "赵六",
       departmentName: "行政部",
       positionName: "行政主管",
@@ -344,8 +344,8 @@ window.ITSM_DEMO_DATA = {
       phone: "***********"
     },
     {
-      contactId: "usr_contact_04",
-      userId: "usr_20005",
+      contactId: "000011",
+      userId: "000012",
       displayName: "陈七",
       departmentName: "市场部",
       positionName: "市场经理",
@@ -354,8 +354,8 @@ window.ITSM_DEMO_DATA = {
       phone: "***********"
     },
     {
-      contactId: "usr_contact_05",
-      userId: "usr_20006",
+      contactId: "000013",
+      userId: "000014",
       displayName: "客服一",
       departmentName: "一线支持组",
       positionName: "IT 客服",
@@ -364,8 +364,8 @@ window.ITSM_DEMO_DATA = {
       phone: "***********"
     },
     {
-      contactId: "usr_contact_admin",
-      userId: "usr_admin_01",
+      contactId: "000015",
+      userId: "000001",
       displayName: "管理员",
       departmentName: "客服管理部",
       positionName: "系统管理员",
@@ -377,7 +377,7 @@ window.ITSM_DEMO_DATA = {
   colleagueConversations: [
     {
       conversationId: "col_con_01",
-      contactId: "usr_contact_01",
+      contactId: "000005",
       displayName: "李四",
       departmentName: "人力资源部",
       status: "ONLINE",
@@ -410,7 +410,7 @@ window.ITSM_DEMO_DATA = {
     },
     {
       conversationId: "col_con_02",
-      contactId: "usr_contact_02",
+      contactId: "000007",
       displayName: "王五",
       departmentName: "财务部",
       status: "ONLINE",
@@ -436,7 +436,7 @@ window.ITSM_DEMO_DATA = {
     },
     {
       conversationId: "col_con_03",
-      contactId: "usr_contact_03",
+      contactId: "000009",
       displayName: "赵六",
       departmentName: "行政部",
       status: "BUSY",
@@ -505,7 +505,7 @@ window.ITSM_DEMO_DATA = {
   ],
   whaleWorkload: [
     {
-      agentId: "usr_support_01",
+      agentId: "000002",
       agentName: "客服一",
       departmentName: "一线支持组",
       draftPerDay: 8,
@@ -514,7 +514,7 @@ window.ITSM_DEMO_DATA = {
       over48Hours: 2
     },
     {
-      agentId: "usr_support_02",
+      agentId: "000016",
       agentName: "客服二",
       departmentName: "一线支持组",
       draftPerDay: 6,
@@ -523,7 +523,7 @@ window.ITSM_DEMO_DATA = {
       over48Hours: 1
     },
     {
-      agentId: "usr_support_03",
+      agentId: "000017",
       agentName: "客服三",
       departmentName: "一线支持组",
       draftPerDay: 5,
@@ -532,7 +532,7 @@ window.ITSM_DEMO_DATA = {
       over48Hours: 1
     },
     {
-      agentId: "usr_support_04",
+      agentId: "000018",
       agentName: "客服四",
       departmentName: "一线支持组",
       draftPerDay: 7,
@@ -541,7 +541,7 @@ window.ITSM_DEMO_DATA = {
       over48Hours: 2
     },
     {
-      agentId: "usr_retail_01",
+      agentId: "000019",
       agentName: "零售客服一",
       departmentName: "零售支持组",
       draftPerDay: 3,
@@ -550,7 +550,7 @@ window.ITSM_DEMO_DATA = {
       over48Hours: 0
     },
     {
-      agentId: "usr_aftersales_01",
+      agentId: "000020",
       agentName: "售后客服一",
       departmentName: "售后支持组",
       draftPerDay: 2,
@@ -570,8 +570,8 @@ window.ITSM_DEMO_DATA = {
   sessions: [
     {
       sessionId: "ses_01J8V9X6Q7",
-      tenantId: "tenant_001",
-      userId: "usr_10001",
+      tenantId: "cza",
+      userId: "000003",
       channel: "WORKBENCH",
       subject: "办公系统无法登录",
       status: "ACTIVE",
@@ -608,8 +608,8 @@ window.ITSM_DEMO_DATA = {
     },
     {
       sessionId: "ses_01J8V9X6Q8",
-      tenantId: "tenant_001",
-      userId: "usr_10001",
+      tenantId: "cza",
+      userId: "000003",
       channel: "WORKBENCH",
       subject: "邮件提醒未收到",
       status: "TICKET_CREATED",
@@ -634,8 +634,8 @@ window.ITSM_DEMO_DATA = {
     },
     {
       sessionId: "ses_01J8V9X6Q9",
-      tenantId: "tenant_001",
-      userId: "usr_10001",
+      tenantId: "cza",
+      userId: "000003",
       channel: "WORKBENCH",
       subject: "打印机驱动异常",
       status: "ENDED",
@@ -663,9 +663,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_001",
       ticketNo: "3053001",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_10001",
+        userId: "000003",
         displayName: "张三",
         departmentName: "技术支持部"
       },
@@ -719,9 +719,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_002",
       ticketNo: "3053002",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_10001",
+        userId: "000003",
         displayName: "张三",
         departmentName: "技术支持部"
       },
@@ -741,7 +741,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: null
       },
       assignee: {
-        userId: "usr_support_01",
+        userId: "000002",
         displayName: "客服一"
       },
       conversation: {
@@ -767,7 +767,7 @@ window.ITSM_DEMO_DATA = {
         {
           action: "TicketAccepted",
           occurredAt: "2026-08-25T06:44:00Z",
-          actor: "usr_support_01"
+          actor: "000002"
         }
       ],
       resolution: null,
@@ -778,9 +778,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_003",
       ticketNo: "3053003",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_10001",
+        userId: "000003",
         displayName: "张三",
         departmentName: "技术支持部"
       },
@@ -800,7 +800,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: "已调整邮箱规则并同步提醒策略"
       },
       assignee: {
-        userId: "usr_support_01",
+        userId: "000002",
         displayName: "客服一"
       },
       conversation: {
@@ -832,7 +832,7 @@ window.ITSM_DEMO_DATA = {
         {
           action: "TicketResolutionSubmitted",
           occurredAt: "2026-08-25T07:37:12Z",
-          actor: "usr_support_01"
+          actor: "000002"
         }
       ],
       resolution: {
@@ -846,9 +846,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_004",
       ticketNo: "3053004",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_10001",
+        userId: "000003",
         displayName: "张三",
         departmentName: "技术支持部"
       },
@@ -868,7 +868,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: null
       },
       assignee: {
-        userId: "usr_support_01",
+        userId: "000002",
         displayName: "客服一"
       },
       conversation: {
@@ -914,9 +914,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_005",
       ticketNo: "3053005",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_10001",
+        userId: "000003",
         displayName: "张三",
         departmentName: "技术支持部"
       },
@@ -936,7 +936,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: null
       },
       assignee: {
-        userId: "usr_support_01",
+        userId: "000002",
         displayName: "客服一"
       },
       conversation: {
@@ -962,7 +962,7 @@ window.ITSM_DEMO_DATA = {
         {
           action: "TicketClosed",
           occurredAt: "2026-08-24T15:10:00Z",
-          actor: "usr_support_01"
+          actor: "000002"
         }
       ],
       resolution: {
@@ -979,9 +979,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_006",
       ticketNo: "3053006",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_20002",
+        userId: "000006",
         displayName: "李四",
         departmentName: "人力资源部"
       },
@@ -1001,7 +1001,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: "已清理缓存并重新发布前端资源"
       },
       assignee: {
-        userId: "usr_support_02",
+        userId: "000016",
         displayName: "客服二"
       },
       conversation: {
@@ -1027,7 +1027,7 @@ window.ITSM_DEMO_DATA = {
         {
           action: "TicketReopened",
           occurredAt: "2026-08-23T10:15:00Z",
-          actor: "usr_20002"
+          actor: "000006"
         }
       ],
       resolution: {
@@ -1041,9 +1041,9 @@ window.ITSM_DEMO_DATA = {
     {
       ticketId: "tkt_20260825_007",
       ticketNo: "3053007",
-      tenantId: "tenant_001",
+      tenantId: "cza",
       requester: {
-        userId: "usr_30003",
+        userId: "000021",
         displayName: "王五",
         departmentName: "财务部"
       },
@@ -1063,7 +1063,7 @@ window.ITSM_DEMO_DATA = {
         customSolution: null
       },
       assignee: {
-        userId: "usr_support_03",
+        userId: "000017",
         displayName: "客服三"
       },
       conversation: {

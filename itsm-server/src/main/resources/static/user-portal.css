@@ -531,3 +531,30 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .approval-info .muted { font-size: 12px; color: var(--muted); }
 .approval-info p { margin: 6px 0 0; font-size: 13px; color: #33475c; }
 .approval-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* 员工账号 */
+.employee-list { display: flex; flex-direction: column; gap: 10px; }
+.employee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.employee-row.editing { align-items: flex-start; flex-wrap: wrap; }
+.employee-name { display: flex; flex-direction: column; min-width: 160px; }
+.employee-name strong { font-size: 15px; color: #1d2e40; }
+.employee-name .muted { font-size: 12px; color: var(--muted); }
+.employee-fields { display: flex; gap: 12px; flex: 1; flex-wrap: wrap; align-items: center; font-size: 13px; color: #33475c; }
+.employee-fields .text-input { min-width: 150px; }
+.employee-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* 同事聊天未读角标 */
+.chat-list-unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}

@@ -84,4 +84,13 @@ public class ConversationController extends ControllerSupport {
                 "HANDOFF", null, java.math.BigDecimal.ZERO, request.businessLineCode(), null, request.reason(), null, null);
         return ok(conversationService.recordDecision(context, sessionId, decision), httpServletRequest);
     }
+
+    @Operation(summary = "结束会话", description = "用户主动结束会话，归档并清理缓存")
+    @PostMapping("/sessions/{sessionId}/end")
+    public ApiResponse<ConversationDtos.SessionDetailResponse> endSession(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+                                                                          @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+                                                                          HttpServletRequest httpServletRequest) {
+        RequestContext context = context(httpServletRequest, tenantId);
+        return ok(conversationService.endSession(context, sessionId), httpServletRequest);
+    }
 }

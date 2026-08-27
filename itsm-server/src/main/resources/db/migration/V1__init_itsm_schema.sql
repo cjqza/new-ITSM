@@ -342,5 +342,5 @@ CREATE TABLE IF NOT EXISTS outbox_event (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 INSERT INTO tenant (tenant_id, tenant_name, enabled)
-VALUES ('tenant_001', '示例企业', 1)
+VALUES ('cza', 'cza集团', 1)
 ON DUPLICATE KEY UPDATE tenant_name = VALUES(tenant_name), enabled = VALUES(enabled);

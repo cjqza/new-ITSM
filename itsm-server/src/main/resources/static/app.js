@@ -36,7 +36,7 @@
   function authHeaders() {
     return {
       'Content-Type': 'application/json',
-      'X-Tenant-Id': (ITSM_SESSION && ITSM_SESSION.tenantId) || 'tenant_001',
+      'X-Tenant-Id': (ITSM_SESSION && ITSM_SESSION.tenantId) || 'cza',
       'Authorization': 'Bearer ' + ((ITSM_SESSION && ITSM_SESSION.accessToken) || '')
     };
   }
@@ -551,14 +551,14 @@
           <div class="login-heading"><span class="eyebrow">客服身份登录</span><h1>进入工单处理工作台</h1><p>使用客服账号登录后处理服务请求。</p></div>
           <form id="login-form" class="login-form">
             <label for="login-tenant">租户 ID</label>
-            <input id="login-tenant" name="tenantId" value="tenant_001" required>
-            <label for="login-account">账号</label>
-            <input id="login-account" name="account" value="support01" autocomplete="username" required>
+            <input id="login-tenant" name="tenantId" value="cza" required>
+            <label for="login-account">邮箱或工号</label>
+            <input id="login-account" name="account" value="000002" placeholder="邮箱或工号" autocomplete="username" required>
             <label for="login-password">密码</label>
             <input id="login-password" name="password" type="password" value="P@ssw0rd123" autocomplete="current-password" required>
             <button type="submit" class="primary-button login-submit">登录</button>
           </form>
-          <div class="login-note">种子客服账号：support01 / P@ssw0rd123 · <a href="./register.html">注册账号</a></div>
+          <div class="login-note">种子客服账号：工号 000002 / P@ssw0rd123 · <a href="./register.html">注册账号</a></div>
         </section>
       </div>
     `;
@@ -590,13 +590,13 @@
   };
 
   const SUPPORT_AGENTS = [
-    { userId: 'usr_support_01', displayName: '客服一', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
-    { userId: 'usr_support_02', displayName: '客服二', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
-    { userId: 'usr_support_03', displayName: '客服三', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
-    { userId: 'usr_support_04', displayName: '客服四', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
-    { userId: 'usr_retail_01', displayName: '零售客服一', businessLineCodes: ['RETAIL'] },
-    { userId: 'usr_aftersales_01', displayName: '售后客服一', businessLineCodes: ['AFTER_SALES'] },
-    { userId: 'usr_logistics_01', displayName: '物流客服一', businessLineCodes: ['LOGISTICS'] }
+    { userId: '000002', displayName: '客服一', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
+    { userId: '000016', displayName: '客服二', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
+    { userId: '000017', displayName: '客服三', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
+    { userId: '000018', displayName: '客服四', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
+    { userId: '000019', displayName: '零售客服一', businessLineCodes: ['RETAIL'] },
+    { userId: '000020', displayName: '售后客服一', businessLineCodes: ['AFTER_SALES'] },
+    { userId: '000022', displayName: '物流客服一', businessLineCodes: ['LOGISTICS'] }
   ];
 
   const BUSINESS_LINES = [
@@ -681,33 +681,33 @@
 
   function normalizeSupportDemoData() {
     const requesterTemplates = [
-      { userId: 'usr_10001', displayName: '张三', departmentName: '技术支持部' },
-      { userId: 'usr_20002', displayName: '李四', departmentName: '人力资源部' },
-      { userId: 'usr_30003', displayName: '王五', departmentName: '财务部' },
-      { userId: 'usr_40004', displayName: '赵六', departmentName: '市场部' },
-      { userId: 'usr_50005', displayName: '孙七', departmentName: '运营部' },
-      { userId: 'usr_60006', displayName: '周八', departmentName: '门店一部' },
-      { userId: 'usr_70007', displayName: '吴九', departmentName: '供应链部' }
+      { userId: '000003', displayName: '张三', departmentName: '技术支持部' },
+      { userId: '000006', displayName: '李四', departmentName: '人力资源部' },
+      { userId: '000021', displayName: '王五', departmentName: '财务部' },
+      { userId: '000023', displayName: '赵六', departmentName: '市场部' },
+      { userId: '000024', displayName: '孙七', departmentName: '运营部' },
+      { userId: '000025', displayName: '周八', departmentName: '门店一部' },
+      { userId: '000026', displayName: '吴九', departmentName: '供应链部' }
     ];
     const rows = [
       ['3053008', 'Outlook 无法收取新邮件', 'MEDIUM', 'IT_SUPPORT', 'PENDING_ACCEPTANCE', 12, null],
       ['3053009', '共享盘权限无法访问', 'HIGH', 'IT_SUPPORT', 'PENDING_ACCEPTANCE', 17, null],
       ['3053010', '新电脑无法加入域', 'HIGH', 'IT_SUPPORT', 'PENDING_ACCEPTANCE', 23, null],
       ['3053011', '浏览器主页被篡改', 'LOW', 'IT_SUPPORT', 'PENDING_ACCEPTANCE', 31, null],
-      ['3053012', '网络时断时续', 'MEDIUM', 'IT_SUPPORT', 'IN_PROGRESS', 45, 'usr_support_01'],
-      ['3053013', '操作系统更新失败', 'HIGH', 'IT_SUPPORT', 'IN_PROGRESS', 58, 'usr_support_01'],
-      ['3053014', '远程桌面黑屏', 'MEDIUM', 'IT_SUPPORT', 'IN_PROGRESS', 72, 'usr_support_01'],
-      ['3053015', '邮箱自动回复规则异常', 'LOW', 'IT_SUPPORT', 'IN_PROGRESS', 86, 'usr_support_02'],
-      ['3053016', '内部系统登录后闪退', 'HIGH', 'IT_SUPPORT', 'IN_PROGRESS', 101, 'usr_support_01'],
-      ['3053017', '门店收银机无法开机', 'HIGH', 'RETAIL', 'IN_PROGRESS', 118, 'usr_retail_01'],
+      ['3053012', '网络时断时续', 'MEDIUM', 'IT_SUPPORT', 'IN_PROGRESS', 45, '000002'],
+      ['3053013', '操作系统更新失败', 'HIGH', 'IT_SUPPORT', 'IN_PROGRESS', 58, '000002'],
+      ['3053014', '远程桌面黑屏', 'MEDIUM', 'IT_SUPPORT', 'IN_PROGRESS', 72, '000002'],
+      ['3053015', '邮箱自动回复规则异常', 'LOW', 'IT_SUPPORT', 'IN_PROGRESS', 86, '000016'],
+      ['3053016', '内部系统登录后闪退', 'HIGH', 'IT_SUPPORT', 'IN_PROGRESS', 101, '000002'],
+      ['3053017', '门店收银机无法开机', 'HIGH', 'RETAIL', 'IN_PROGRESS', 118, '000019'],
       ['3053018', '退货单状态未同步', 'MEDIUM', 'AFTER_SALES', 'PENDING_ACCEPTANCE', 132, null],
       ['3053019', '物流单号查询超时', 'MEDIUM', 'LOGISTICS', 'PENDING_ACCEPTANCE', 141, null],
-      ['3053020', '审批中心页面无数据', 'HIGH', 'HR_SYSTEM', 'IN_PROGRESS', 153, 'usr_support_02'],
+      ['3053020', '审批中心页面无数据', 'HIGH', 'HR_SYSTEM', 'IN_PROGRESS', 153, '000016'],
       ['3053021', 'SAP 凭证无法打印', 'MEDIUM', 'ERP', 'PENDING_ACCEPTANCE', 166, null],
-      ['3053022', '桌面文件被加密', 'HIGH', 'IT_SUPPORT', 'REOPENED', 179, 'usr_support_01'],
-      ['3053023', '打印机端口丢失', 'LOW', 'IT_SUPPORT', 'PENDING_USER_CONFIRM', 188, 'usr_support_01'],
-      ['3053024', '软件许可证即将到期', 'MEDIUM', 'IT_SUPPORT', 'RESOLVED', 198, 'usr_support_01'],
-      ['3053025', '无线网络无法自动连接', 'MEDIUM', 'IT_SUPPORT', 'CLOSED', 216, 'usr_support_02']
+      ['3053022', '桌面文件被加密', 'HIGH', 'IT_SUPPORT', 'REOPENED', 179, '000002'],
+      ['3053023', '打印机端口丢失', 'LOW', 'IT_SUPPORT', 'PENDING_USER_CONFIRM', 188, '000002'],
+      ['3053024', '软件许可证即将到期', 'MEDIUM', 'IT_SUPPORT', 'RESOLVED', 198, '000002'],
+      ['3053025', '无线网络无法自动连接', 'MEDIUM', 'IT_SUPPORT', 'CLOSED', 216, '000016']
     ];
 
     rows.forEach(([ticketNo, title, priority, businessLineCode, status, minutesAgo, assigneeId]) => {
@@ -728,7 +728,7 @@
       DATA.tickets.push({
         ticketId: `tkt_${ticketNo}`,
         ticketNo,
-        tenantId: 'tenant_001',
+        tenantId: 'cza',
         requester,
         title,
         description: `${requester.displayName}提交的问题：${title}。`,
@@ -4065,7 +4065,7 @@
     if (form.id === 'login-form') {
       event.preventDefault();
       const values = new FormData(form);
-      const tenantId = String(values.get('tenantId') || 'tenant_001').trim();
+      const tenantId = String(values.get('tenantId') || 'cza').trim();
       const account = String(values.get('account') || '').trim();
       const password = String(values.get('password') || '');
       if (!account || !password) {

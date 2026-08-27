@@ -48,11 +48,13 @@ public class TicketService {
     private final ConversationMessageMapper messageMapper;
     private final JsonSupport jsonSupport;
     private final AuditService auditService;
+    private final ConversationService conversationService;
     private final AtomicLong ticketSequence = new AtomicLong(1000);
 
     public TicketService(TicketMapper ticketMapper, TicketClassificationMapper classificationMapper,
                          TicketStatusHistoryMapper statusHistoryMapper, RatingMapper ratingMapper,
-                         ConversationMessageMapper messageMapper, JsonSupport jsonSupport, AuditService auditService) {
+                         ConversationMessageMapper messageMapper, JsonSupport jsonSupport, AuditService auditService,
+                         ConversationService conversationService) {
         this.ticketMapper = ticketMapper;
         this.classificationMapper = classificationMapper;
         this.statusHistoryMapper = statusHistoryMapper;
@@ -60,6 +62,7 @@ public class TicketService {
         this.messageMapper = messageMapper;
         this.jsonSupport = jsonSupport;
         this.auditService = auditService;
+        this.conversationService = conversationService;
     }
 
     /**
@@ -316,6 +319,7 @@ public class TicketService {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
         }
         recordStatus(ticket, "RESOLVED", "CLOSED", context.userId(), "SUPPORT", "CLOSE", request.note());
+        conversationService.archiveSession(context.tenantId(), ticket.getSessionId());
         return new TicketDtos.CloseTicketResponse(ticketId, ticket.getStatus(), ticket.getClosedAt(), ticket.getClosedBy(), true);
     }
 

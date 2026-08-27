@@ -72,6 +72,10 @@
     contacts: [],
     contactsPage: 1,
     contactsPageSize: 10,
+    colleagueConversations: [],
+    employees: [],
+    employeeEditingId: null,
+    employeeForm: { departmentName: '', phone: '', email: '' },
     ticketDetail: null,
     ticketAction: 'none',
     reopenReason: '',
@@ -234,7 +238,7 @@
       if (remoteData.sessions.length) {
         await loadSessionMessages(remoteData.sessions[0]);
       }
-      await Promise.all([loadMyRequests(), loadApprovals(), loadContacts()]);
+      await Promise.all([loadMyRequests(), loadApprovals(), loadContacts(), loadEmployees()]);
     } catch (error) {
       remoteData.tickets = [];
       remoteData.sessions = [];
@@ -265,6 +269,49 @@
       state.contacts = await apiGet('/api/v1/contacts') || [];
     } catch (error) {
       state.contacts = [];
+    }
+  }
+
+  async function loadEmployees() {
+    if (!hasAdminRole()) return;
+    try {
+      state.employees = await apiGet('/api/v1/admin/employees') || [];
+    } catch (error) {
+      state.employees = [];
+    }
+  }
+
+  function startEditEmployee(userId) {
+    const emp = (state.employees || []).find((e) => e.userId === userId);
+    state.employeeEditingId = userId;
+    state.employeeForm = {
+      departmentName: emp ? (emp.departmentName || '') : '',
+      phone: emp ? (emp.phone || '') : '',
+      email: emp ? (emp.email || '') : ''
+    };
+    render();
+  }
+
+  function cancelEditEmployee() {
+    state.employeeEditingId = null;
+    state.employeeForm = { departmentName: '', phone: '', email: '' };
+    render();
+  }
+
+  async function saveEmployee(userId) {
+    try {
+      await apiPatch('/api/v1/admin/employees/' + encodeURIComponent(userId), {
+        departmentName: state.employeeForm.departmentName || null,
+        phone: state.employeeForm.phone || null,
+        email: state.employeeForm.email || null
+      });
+      state.employeeEditingId = null;
+      state.employeeForm = { departmentName: '', phone: '', email: '' };
+      await loadEmployees();
+      render();
+      showToast('已保存', '员工账号已更新', 'success');
+    } catch (error) {
+      showToast('保存失败', error.message, 'error');
     }
   }
 
@@ -316,6 +363,19 @@
     return body.data;
   }
 
+  async function apiPatch(path, payload) {
+    const response = await fetch(path, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.code !== 'SUCCESS') {
+      throw new Error(body.message || `HTTP ${response.status}`);
+    }
+    return body.data;
+  }
+
   function newClientMessageId() {
     return 'cli_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
   }
@@ -340,6 +400,69 @@
         state.handoffOpen = true;
       }
       await loadRemoteData();
+      render();
+    } catch (error) {
+      showToast('发送失败', error.message, 'error');
+    }
+  }
+
+  async function endCurrentSession() {
+    const session = currentSession();
+    if (!session) {
+      showToast('操作失败', '当前没有会话', 'error');
+      return;
+    }
+    try {
+      await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(session.sessionId) + '/end', {});
+      await loadRemoteData();
+      render();
+      showToast('已结束', '会话已归档并清理缓存', 'success');
+    } catch (error) {
+      showToast('操作失败', error.message, 'error');
+    }
+  }
+
+  async function loadColleagueMessages(conversation) {
+    try {
+      const list = await apiGet('/api/v1/colleagues/messages?peerUserId=' + encodeURIComponent(conversation.userId));
+      conversation.messages = (list || []).map((m) => ({
+        messageId: String(m.id),
+        senderType: m.fromUserId === currentUserId() ? 'USER' : 'CONTACT',
+        senderName: m.fromUserId === currentUserId() ? userProfile().displayName : conversation.displayName,
+        content: m.content,
+        createdAt: m.createdAt
+      }));
+      const isOpen = state.view === 'MESSAGES' && state.chat.type === 'COLLEAGUE' && state.chat.id === conversation.conversationId;
+      if (isOpen) {
+        conversation.unreadCount = 0;
+        conversation.lastReadMessageId = conversation.messages.length ? Number(conversation.messages[conversation.messages.length - 1].messageId) : 0;
+      } else {
+        const lastRead = conversation.lastReadMessageId || 0;
+        const unread = conversation.messages.filter((m) => Number(m.messageId) > lastRead && m.senderType === 'CONTACT');
+        conversation.unreadCount = unread.length;
+      }
+      if (conversation.messages.length) {
+        const last = conversation.messages[conversation.messages.length - 1];
+        conversation.lastMessage = last.content;
+        conversation.lastMessageAt = last.createdAt;
+      }
+    } catch (error) {
+      conversation.messages = [];
+    }
+  }
+
+  function openColleagueConversation(conversation) {
+    conversation.lastReadMessageId = conversation.messages.length ? Number(conversation.messages[conversation.messages.length - 1].messageId) : 0;
+    conversation.unreadCount = 0;
+    state.view = 'MESSAGES';
+    state.chat = { type: 'COLLEAGUE', id: conversation.conversationId };
+  }
+
+  async function sendColleagueMessage(conversation, content) {
+    try {
+      await apiPost('/api/v1/colleagues/messages', { toUserId: conversation.userId, content });
+      state.colleagueDraft = '';
+      await loadColleagueMessages(conversation);
       render();
     } catch (error) {
       showToast('发送失败', error.message, 'error');
@@ -584,7 +707,8 @@
       WORKSPACE: renderWorkspace,
       ITSM: renderItsm,
       WHALE: renderWhale,
-      APPROVALS: renderApprovals
+      APPROVALS: renderApprovals,
+      EMPLOYEES: renderEmployees
     };
     (views[state.view] || renderMessages)();
   }
@@ -597,14 +721,14 @@
           <div class="login-heading"><span class="eyebrow">企业身份登录</span><h1>进入 IT 服务工作台</h1><p>登录后可访问消息、历史工单、联系人和工作台。</p></div>
           <form id="login-form" class="login-form" autocomplete="off">
             <label for="tenant-id">租户 ID</label>
-            <input id="tenant-id" name="tenantId" value="tenant_001" required>
-            <label for="login-account">账号</label>
-            <input id="login-account" name="account" placeholder="用户名" autocomplete="username" required>
+            <input id="tenant-id" name="tenantId" value="cza" required>
+            <label for="login-account">邮箱或工号</label>
+            <input id="login-account" name="account" placeholder="邮箱或工号" autocomplete="username" required>
             <label for="login-password">密码</label>
             <input id="login-password" name="password" type="password" placeholder="密码" autocomplete="current-password" required>
             <button type="submit" class="primary-button login-submit">登录</button>
           </form>
-          <div class="login-note">默认种子账号：zhangsan / P@ssw0rd123 · <a href="./register.html">注册账号</a></div>
+          <div class="login-note">种子账号：工号 000003（张三）/ P@ssw0rd123 · <a href="./register.html">注册账号</a></div>
         </section>
         <div class="login-visual">
           <div class="login-visual-panel">
@@ -625,7 +749,7 @@
   function renderShell(activeView, content) {
     const profile = userProfile();
     const historyCount = historyTickets().length;
-    const unreadCount = (DATA.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
+    const unreadCount = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
     const viewLabels = {
       MESSAGES: '消息',
       HISTORY: '历史消息',
@@ -633,7 +757,8 @@
       WORKSPACE: '工作台',
       ITSM: 'ITSM 工单',
       WHALE: '数鲸看板',
-      APPROVALS: '审批'
+      APPROVALS: '审批',
+      EMPLOYEES: '员工账号'
     };
     const views = [
       { key: 'MESSAGES', label: '消息' },
@@ -651,7 +776,7 @@
 
     appRoot.innerHTML = `
       <div class="user-portal">
-        <div class="portal-top"><span><strong>ITSM</strong> · 用户工作台</span><span>${escapeHtml(currentTenant().tenantName)}</span></div>
+        <div class="portal-top"><span><strong>ITSM系统</strong></span><span>${escapeHtml(currentTenant().tenantName)}</span></div>
         <div class="portal-shell">
           <aside class="portal-sidebar">
             <button class="portal-profile-head" data-action="toggle-profile"><span class="avatar">${escapeHtml(profile.displayName.slice(0, 1))}</span><span class="portal-profile-title"><strong>${escapeHtml(profile.displayName)}</strong><small>${escapeHtml(profile.departmentName)}</small></span><span class="chevron">›</span></button>
@@ -682,15 +807,15 @@
 
   function renderMessages() {
     const sessions = userSessions();
-    const colleagues = (DATA.colleagueConversations || []).slice().sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+    const colleagues = (state.colleagueConversations || []).slice().sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
     const items = [
       { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' },
-      ...colleagues.map((item) => ({ key: item.conversationId, type: 'COLLEAGUE', name: item.displayName, subtitle: item.departmentName, preview: item.lastMessage, time: formatDate(item.lastMessageAt), avatar: item.displayName.slice(0, 1), tone: '' }))
+      ...colleagues.map((item) => ({ key: item.conversationId, type: 'COLLEAGUE', name: item.displayName, subtitle: item.departmentName, preview: item.lastMessage, time: formatDate(item.lastMessageAt), avatar: item.displayName.slice(0, 1), tone: '', unread: item.unreadCount || 0 }))
     ];
     const filtered = state.portalSearch ? items.filter((item) => [item.name, item.subtitle, item.preview].join(' ').toLowerCase().includes(state.portalSearch.trim().toLowerCase())) : items;
     const sidebar = filtered.map((item) => `
       <button class="chat-list-item ${state.chat.type === item.type && state.chat.id === item.key ? 'active' : ''}" data-action="open-chat" data-type="${item.type}" data-id="${item.key}">
-        <span class="chat-list-avatar ${item.tone}">${escapeHtml(item.avatar)}</span><span class="chat-list-copy"><span class="chat-list-top"><strong>${escapeHtml(item.name)}</strong><time>${escapeHtml(item.time)}</time></span><span class="chat-list-sub">${escapeHtml(item.subtitle)}</span><span class="chat-list-preview">${escapeHtml(item.preview)}</span></span>
+        <span class="chat-list-avatar ${item.tone}">${escapeHtml(item.avatar)}</span><span class="chat-list-copy"><span class="chat-list-top"><strong>${escapeHtml(item.name)}</strong>${item.unread ? `<span class="chat-list-unread">${item.unread}</span>` : ''}<time>${escapeHtml(item.time)}</time></span><span class="chat-list-sub">${escapeHtml(item.subtitle)}</span><span class="chat-list-preview">${escapeHtml(item.preview)}</span></span>
       </button>
     `).join('');
     const colleague = colleagues.find((item) => item.conversationId === state.chat.id);
@@ -731,7 +856,7 @@
           ${successTicket ? renderHandoffSuccessCard(successTicket) : ''}
           ${state.handoffOpen ? renderHandoffForm() : ''}
         </div>
-        <form class="composer" id="assistant-chat-form"><div class="composer-tools"><button type="button" data-action="tool" data-tool="attach" title="附件">＋</button><button type="button" data-action="tool" data-tool="file" title="文件">文</button><button type="button" data-action="tool" data-tool="screenshot" title="截图">截</button></div><textarea class="textarea-input" name="message" placeholder="请输入问题，例如：我的电脑无法连接网络">${escapeHtml(state.assistantDraft)}</textarea><div class="composer-footer"><button type="button" class="ghost-button" data-action="open-handoff">转人工</button><button class="primary-button" type="submit">发送</button></div></form>
+        <form class="composer" id="assistant-chat-form"><div class="composer-tools"><button type="button" data-action="tool" data-tool="attach" title="附件">＋</button><button type="button" data-action="tool" data-tool="file" title="文件">文</button><button type="button" data-action="tool" data-tool="screenshot" title="截图">截</button></div><textarea class="textarea-input" name="message" placeholder="请输入问题，例如：我的电脑无法连接网络">${escapeHtml(state.assistantDraft)}</textarea><div class="composer-footer"><button type="button" class="ghost-button" data-action="end-session">结束会话</button><button type="button" class="ghost-button" data-action="open-handoff">转人工</button><button class="primary-button" type="submit">发送</button></div></form>
       </div>
     `;
   }
@@ -781,6 +906,7 @@
     cards.push({ name: '数鲸看板', desc: '在新窗口打开数鲸看板', icon: '鲸', tone: 'cyan', action: 'open-window', url: './user-portal.html?view=WHALE' });
     if (hasAdminRole()) {
       cards.push({ name: '审批', desc: '审批 ITSM 权限与管理员权限申请', icon: '审', tone: 'violet', action: 'nav', target: 'APPROVALS' });
+      cards.push({ name: '员工账号', desc: '管理员工手机号、邮箱与部门', icon: '员', tone: 'green', action: 'nav', target: 'EMPLOYEES' });
     }
     const cardsHtml = cards.map((card) => {
       const attr = card.action === 'open-window'
@@ -853,6 +979,39 @@
       </div>
     `).join('');
     renderShell('APPROVALS', `<section class="page-section"><div class="page-heading"><div><h1>审批</h1><p>审批普通用户的 ITSM 权限或管理员权限申请</p></div><span class="status-chip info">${state.approvals.length} 条待审批</span></div><div class="panel approval-list">${rows || '<div class="empty-state">暂无待审批申请</div>'}</div></section>`);
+  }
+
+  function renderEmployees() {
+    const rows = (state.employees || []).map((emp) => {
+      if (state.employeeEditingId === emp.userId) {
+        return `
+          <div class="employee-row editing">
+            <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)}</span></div>
+            <div class="employee-fields">
+              <input class="text-input" data-bind="employeeDepartment" placeholder="部门" value="${escapeHtml(state.employeeForm.departmentName)}">
+              <input class="text-input" data-bind="employeePhone" placeholder="手机号" value="${escapeHtml(state.employeeForm.phone)}">
+              <input class="text-input" data-bind="employeeEmail" placeholder="邮箱" value="${escapeHtml(state.employeeForm.email)}">
+            </div>
+            <div class="employee-actions">
+              <button class="primary-button" data-action="save-employee" data-user-id="${escapeHtml(emp.userId)}">保存</button>
+              <button class="ghost-button" data-action="cancel-employee-edit">取消</button>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="employee-row">
+          <div class="employee-name"><strong>${escapeHtml(emp.displayName)}</strong><span class="muted">${escapeHtml(emp.userId)}</span></div>
+          <div class="employee-fields">
+            <span>${escapeHtml(emp.departmentName || '未分配部门')}</span>
+            <span>${escapeHtml(emp.phone || '无手机号')}</span>
+            <span>${escapeHtml(emp.email || '无邮箱')}</span>
+          </div>
+          <div class="employee-actions"><button class="ghost-button" data-action="edit-employee" data-user-id="${escapeHtml(emp.userId)}">编辑</button></div>
+        </div>
+      `;
+    }).join('');
+    renderShell('EMPLOYEES', `<section class="page-section"><div class="page-heading"><div><h1>员工账号</h1><p>管理员工的手机号、邮箱与部门（仅管理员）</p></div><button class="ghost-button" data-action="refresh-employees">刷新</button></div><div class="panel employee-list">${rows || '<div class="empty-state">暂无员工</div>'}</div></section>`);
   }
 
   function renderHistory() {
@@ -948,30 +1107,31 @@
       return;
     }
     if (action === 'contact-admin') {
-      const admin = (DATA.contacts || []).find((contact) => contact.userId === 'usr_admin_01');
+      const admin = (state.contacts || []).find((contact) => contact.userId === '000001');
       if (!admin) return;
-      let conversation = (DATA.colleagueConversations || []).find((item) => item.contactId === admin.contactId);
+      let conversation = state.colleagueConversations.find((item) => item.contactId === admin.contactId);
       if (!conversation) {
         conversation = {
-          conversationId: `col_con_admin_${Date.now()}`,
+          conversationId: 'col_con_admin_' + Date.now(),
           contactId: admin.contactId,
+          userId: admin.userId,
           displayName: admin.displayName,
-          departmentName: admin.departmentName,
-          status: admin.status,
+          departmentName: admin.departmentName || '客服管理部',
+          status: 'ONLINE',
           lastMessage: '请联系我处理 ITSM 权限申请',
           lastMessageAt: nowIso(),
           unreadCount: 0,
           messages: [
             {
-              messageId: `col_msg_admin_${Date.now()}`,
+              messageId: 'col_msg_admin_' + Date.now(),
               senderType: 'SYSTEM',
               senderName: '系统',
-              content: `已为你打开与 ${admin.displayName} 的会话，可说明 ITSM 权限申请事项。`,
+              content: '已为你打开与 ' + admin.displayName + ' 的会话，可说明 ITSM 权限申请事项。',
               createdAt: nowIso()
             }
           ]
         };
-        DATA.colleagueConversations.unshift(conversation);
+        state.colleagueConversations.unshift(conversation);
       }
       state.view = 'MESSAGES';
       state.chat = { type: 'COLLEAGUE', id: conversation.conversationId };
@@ -994,10 +1154,33 @@
       rejectRequest(target.dataset.requestId);
       return;
     }
+    if (action === 'edit-employee') {
+      startEditEmployee(target.dataset.userId);
+      return;
+    }
+    if (action === 'save-employee') {
+      saveEmployee(target.dataset.userId);
+      return;
+    }
+    if (action === 'cancel-employee-edit') {
+      cancelEditEmployee();
+      return;
+    }
+    if (action === 'refresh-employees') {
+      loadEmployees().finally(() => render());
+      return;
+    }
     if (action === 'open-chat') {
       state.view = 'MESSAGES';
       state.chat = { type: target.dataset.type || 'ASSISTANT', id: target.dataset.id || 'assistant' };
       state.colleagueDraft = '';
+      if (state.chat.type === 'COLLEAGUE') {
+        const conv = state.colleagueConversations.find((item) => item.conversationId === state.chat.id);
+        if (conv) {
+          conv.lastReadMessageId = conv.messages.length ? Number(conv.messages[conv.messages.length - 1].messageId) : 0;
+          conv.unreadCount = 0;
+        }
+      }
       render();
       return;
     }
@@ -1013,16 +1196,27 @@
       return;
     }
     if (action === 'open-contact') {
-      const contact = (DATA.contacts || []).find((item) => item.contactId === target.dataset.contactId);
+      const contact = (state.contacts || []).find((item) => item.contactId === target.dataset.contactId);
       if (!contact) return;
-      let conversation = (DATA.colleagueConversations || []).find((item) => item.contactId === contact.contactId);
+      let conversation = state.colleagueConversations.find((item) => item.contactId === contact.contactId);
       if (!conversation) {
-        conversation = { conversationId: `col_con_${Date.now()}`, contactId: contact.contactId, displayName: contact.displayName, departmentName: contact.departmentName, status: contact.status, lastMessage: '你们已经成为会话伙伴', lastMessageAt: nowIso(), unreadCount: 0, messages: [{ messageId: `col_msg_${Date.now()}`, senderType: 'SYSTEM', senderName: '系统', content: `你和 ${contact.displayName} 已经可以开始聊天。`, createdAt: nowIso() }] };
-        DATA.colleagueConversations.unshift(conversation);
+        conversation = {
+          conversationId: 'col_con_' + contact.userId,
+          contactId: contact.contactId,
+          userId: contact.userId,
+          displayName: contact.displayName,
+          departmentName: contact.departmentName || '未分配部门',
+          status: 'ONLINE',
+          lastMessage: '开始聊天',
+          lastMessageAt: nowIso(),
+          unreadCount: 0,
+          messages: []
+        };
+        state.colleagueConversations.unshift(conversation);
       }
-      state.view = 'MESSAGES';
-      state.chat = { type: 'COLLEAGUE', id: conversation.conversationId };
+      openColleagueConversation(conversation);
       render();
+      loadColleagueMessages(conversation).then(() => render());
       return;
     }
     if (action === 'category') {
@@ -1037,6 +1231,10 @@
       state.handoff.title = state.handoff.title || (session && (session.summary || session.subject)) || 'IT 服务咨询';
       state.handoff.description = state.assistantDraft || '用户请求从 IT 助手转接人工客服。';
       render();
+      return;
+    }
+    if (action === 'end-session') {
+      endCurrentSession();
       return;
     }
     if (action === 'close-handoff') {
@@ -1184,7 +1382,7 @@
     if (form.id === 'login-form') {
       event.preventDefault();
       const values = new FormData(form);
-      const tenantId = String(values.get('tenantId') || 'tenant_001').trim();
+      const tenantId = String(values.get('tenantId') || 'cza').trim();
       const account = String(values.get('account') || '').trim();
       const password = String(values.get('password') || '');
       if (!account || !password) {
@@ -1233,13 +1431,9 @@
     if (form.id === 'colleague-chat-form') {
       event.preventDefault();
       const text = String(new FormData(form).get('message') || '').trim();
-      const conversation = (DATA.colleagueConversations || []).find((item) => item.conversationId === state.chat.id);
+      const conversation = (state.colleagueConversations || []).find((item) => item.conversationId === state.chat.id);
       if (!conversation || !text) return;
-      conversation.messages.push({ messageId: `col_msg_${Date.now()}`, senderType: 'USER', senderName: userProfile().displayName, content: text, createdAt: nowIso() });
-      conversation.lastMessage = text;
-      conversation.lastMessageAt = nowIso();
-      state.colleagueDraft = '';
-      render();
+      sendColleagueMessage(conversation, text);
       return;
     }
     if (form.id === 'oa-approval-form') {
@@ -1326,6 +1520,18 @@
       state.ratingComment = target.value;
       return;
     }
+    if (target.dataset && target.dataset.bind === 'employeeDepartment') {
+      state.employeeForm.departmentName = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'employeePhone') {
+      state.employeeForm.phone = target.value;
+      return;
+    }
+    if (target.dataset && target.dataset.bind === 'employeeEmail') {
+      state.employeeForm.email = target.value;
+      return;
+    }
     if (target.dataset && (target.dataset.bind === 'portalSearch' || target.dataset.bind === 'contactKeyword')) {
       state[target.dataset.bind] = target.value;
       render();
@@ -1385,6 +1591,18 @@
   if (urlView && ['MESSAGES', 'HISTORY', 'CONTACTS', 'WORKSPACE', 'ITSM', 'WHALE', 'APPROVALS'].includes(urlView)) {
     state.view = urlView;
   }
+
+  let lastSidebarSignature = '';
+  window.setInterval(() => {
+    if (!state.loggedIn) return;
+    Promise.all(state.colleagueConversations.map((conv) => loadColleagueMessages(conv))).then(() => {
+      const signature = state.colleagueConversations.map((c) => c.userId + ':' + (c.messages.length) + ':' + (c.unreadCount || 0)).join('|');
+      if (signature !== lastSidebarSignature) {
+        lastSidebarSignature = signature;
+        if (state.view === 'MESSAGES') render();
+      }
+    });
+  }, 5000);
 
   if (state.loggedIn) {
     render();

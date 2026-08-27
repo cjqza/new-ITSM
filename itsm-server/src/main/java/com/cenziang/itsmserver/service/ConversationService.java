@@ -1,6 +1,7 @@
 package com.cenziang.itsmserver.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cenziang.itsmcommon.api.BusinessException;
 import com.cenziang.itsmcommon.api.ErrorCode;
@@ -34,15 +35,18 @@ public class ConversationService {
     private final ConversationMessageMapper messageMapper;
     private final AgentDecisionMapper decisionMapper;
     private final JsonSupport jsonSupport;
+    private final ChatCacheService chatCacheService;
 
     public ConversationService(ConversationSessionMapper sessionMapper,
                                ConversationMessageMapper messageMapper,
                                AgentDecisionMapper decisionMapper,
-                               JsonSupport jsonSupport) {
+                               JsonSupport jsonSupport,
+                               ChatCacheService chatCacheService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.decisionMapper = decisionMapper;
         this.jsonSupport = jsonSupport;
+        this.chatCacheService = chatCacheService;
     }
 
     /**
@@ -108,19 +112,21 @@ public class ConversationService {
                 && !context.roles().contains("SUPPORT_ADMIN") && !context.roles().contains("SUPERVISOR")) {
             throw new BusinessException(ErrorCode.DATA_SCOPE_FORBIDDEN);
         }
-        Page<ConversationMessageEntity> page = messageMapper.selectPage(
-                new Page<>(messagePage, messagePageSize),
-                new LambdaQueryWrapper<ConversationMessageEntity>()
-                        .eq(ConversationMessageEntity::getTenantId, context.tenantId())
-                        .eq(ConversationMessageEntity::getSessionId, sessionId)
-                        .orderByAsc(ConversationMessageEntity::getCreatedAt)
-        );
-        List<ConversationDtos.SessionMessageItem> messages = page.getRecords().stream()
-                .map(m -> new ConversationDtos.SessionMessageItem(m.getMessageId(), m.getSenderType(), m.getContent(), m.getCreatedAt()))
-                .toList();
+        List<ConversationDtos.SessionMessageItem> messages = chatCacheService.getOrLoad(sessionId, () -> {
+            Page<ConversationMessageEntity> page = messageMapper.selectPage(
+                    new Page<>(messagePage, messagePageSize),
+                    new LambdaQueryWrapper<ConversationMessageEntity>()
+                            .eq(ConversationMessageEntity::getTenantId, context.tenantId())
+                            .eq(ConversationMessageEntity::getSessionId, sessionId)
+                            .orderByAsc(ConversationMessageEntity::getCreatedAt)
+            );
+            return page.getRecords().stream()
+                    .map(m -> new ConversationDtos.SessionMessageItem(m.getMessageId(), m.getSenderType(), m.getContent(), m.getCreatedAt()))
+                    .toList();
+        });
         return new ConversationDtos.SessionDetailResponse(
                 session.getSessionId(), session.getStatus(), session.getTicketId(), session.getSummary(),
-                PageResponse.of(messages, page.getCurrent(), page.getSize(), page.getTotal()));
+                PageResponse.of(messages, messagePage, messagePageSize, messages.size()));
     }
 
     /**
@@ -165,6 +171,7 @@ public class ConversationService {
                 .setSessionId(sessionId)
                 .setSummary(request.content().length() > 100 ? request.content().substring(0, 100) : request.content())
                 .setLastMessageAt(LocalDateTime.now()));
+        chatCacheService.evict(sessionId);
 
         return new ConversationDtos.SendMessageResponse(userMessage.getMessageId(), sessionId, "AGENT_PROCESSING", null, null, session.getStatus());
     }
@@ -189,6 +196,34 @@ public class ConversationService {
                 .setSuggestedSymptomId(request.suggestedSymptomId());
         decisionMapper.insert(decision);
         return new ConversationDtos.AgentDecisionResponse(sessionId, request.decision(), session.getStatus(), session.getTicketId(), null, false);
+    }
+
+    /**
+     * 用户主动结束会话：归档会话并清理 Redis 缓存。
+     */
+    @Transactional
+    public ConversationDtos.SessionDetailResponse endSession(RequestContext context, String sessionId) {
+        ConversationSessionEntity session = requireSession(context.tenantId(), sessionId);
+        if (!session.getUserId().equals(context.userId())) {
+            throw new BusinessException(ErrorCode.DATA_SCOPE_FORBIDDEN);
+        }
+        archiveSession(context.tenantId(), sessionId);
+        return getSession(context, sessionId, 1, 50);
+    }
+
+    /**
+     * 归档会话（工单闭环 / 用户结束会话时调用）：状态置为 ARCHIVED 并清理缓存。
+     */
+    @Transactional
+    public void archiveSession(String tenantId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        sessionMapper.update(null, new LambdaUpdateWrapper<ConversationSessionEntity>()
+                .eq(ConversationSessionEntity::getTenantId, tenantId)
+                .eq(ConversationSessionEntity::getSessionId, sessionId)
+                .set(ConversationSessionEntity::getStatus, "ARCHIVED"));
+        chatCacheService.evict(sessionId);
     }
 
     private ConversationSessionEntity requireSession(String tenantId, String sessionId) {

@@ -25,23 +25,23 @@
       <!-- 登录 -->
       <form id="login-form" class="auth-form active" autocomplete="off">
         <label>租户 ID</label>
-        <input name="tenantId" value="tenant_001" required>
-        <label>账号</label>
-        <input name="account" placeholder="用户名" autocomplete="username" required>
+        <input name="tenantId" value="cza" required>
+        <label>邮箱或工号</label>
+        <input name="account" placeholder="邮箱或工号" autocomplete="username" required>
         <label>密码</label>
         <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
         <button type="submit" class="primary-button">登录</button>
-        <p class="form-hint">默认种子账号：zhangsan / P@ssw0rd123</p>
+        <p class="form-hint">种子账号：工号 000003（张三）/ P@ssw0rd123</p>
       </form>
 
       <!-- 注册 -->
       <form id="register-form" class="auth-form" autocomplete="off">
         <label>租户 ID</label>
-        <input name="tenantId" value="tenant_001" required>
-        <label>用户名</label>
-        <input name="username" placeholder="登录账号，3-64 位" autocomplete="username" required>
+        <input name="tenantId" value="cza" required>
+        <label>姓名</label>
+        <input name="username" placeholder="姓名（用于生成邮箱拼音）" autocomplete="name" required>
         <label>手机号</label>
-        <input name="phone" placeholder="用于接收验证码" required>
+        <input name="phone" placeholder="11 位手机号" maxlength="11" inputmode="numeric" required>
         <label>验证码</label>
         <div class="code-row">
           <input name="code" placeholder="6 位验证码" required>

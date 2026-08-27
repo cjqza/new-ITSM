@@ -17,11 +17,13 @@ public class AuthSeedInitializer implements CommandLineRunner {
     private final JdbcTemplate jdbcTemplate;
     private final ItsmAuthProperties properties;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final UserAccountGenerator accountGenerator;
 
-    public AuthSeedInitializer(JdbcTemplate jdbcTemplate, ItsmAuthProperties properties) {
+    public AuthSeedInitializer(JdbcTemplate jdbcTemplate, ItsmAuthProperties properties, UserAccountGenerator accountGenerator) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
         this.passwordEncoder = new BCryptPasswordEncoder(properties.getBcryptStrength());
+        this.accountGenerator = accountGenerator;
     }
 
     @Override
@@ -37,16 +39,18 @@ public class AuthSeedInitializer implements CommandLineRunner {
                 properties.getSeed().getTenantName()
         );
 
+        String seedEmail = accountGenerator.emailPrefix(properties.getSeed().getDisplayName()) + "@cza.com";
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user (user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled)
-                        VALUES (?, ?, ?, ?, NULL, NULL, 1)
-                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), department_name = VALUES(department_name), enabled = VALUES(enabled)
+                        VALUES (?, ?, ?, ?, NULL, ?, 1)
+                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), department_name = VALUES(department_name), contact_email = VALUES(contact_email), enabled = VALUES(enabled)
                         """,
                 properties.getSeed().getUserId(),
                 properties.getSeed().getTenantId(),
                 properties.getSeed().getDisplayName(),
-                properties.getSeed().getDepartmentName()
+                properties.getSeed().getDepartmentName(),
+                seedEmail
         );
 
         jdbcTemplate.update(
@@ -112,13 +116,15 @@ public class AuthSeedInitializer implements CommandLineRunner {
      */
     private void seedSupportAgent() {
         String tenantId = properties.getSeed().getTenantId();
+        String email = accountGenerator.emailPrefix("客服一") + "@cza.com";
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user (user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled)
-                        VALUES ('usr_support_01', ?, '客服一', '一线支持组', NULL, NULL, 1)
-                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), enabled = VALUES(enabled)
+                        VALUES ('000002', ?, '客服一', '一线支持组', NULL, ?, 1)
+                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), contact_email = VALUES(contact_email), enabled = VALUES(enabled)
                         """,
-                tenantId
+                tenantId,
+                email
         );
 
         jdbcTemplate.update(
@@ -126,7 +132,7 @@ public class AuthSeedInitializer implements CommandLineRunner {
                         INSERT INTO user_credential (
                             credential_id, tenant_id, user_id, login_name, password_hash, password_algo,
                             password_version, auth_version, failed_count, locked_until, last_login_at, last_login_ip, status
-                        ) VALUES (?, ?, 'usr_support_01', 'support01', ?, 'bcrypt', 1, 1, 0, NULL, NULL, NULL, 'ACTIVE')
+                        ) VALUES (?, ?, '000002', 'support01', ?, 'bcrypt', 1, 1, 0, NULL, NULL, NULL, 'ACTIVE')
                         ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), status = VALUES(status)
                         """,
                 UUID.randomUUID().toString(),
@@ -147,7 +153,7 @@ public class AuthSeedInitializer implements CommandLineRunner {
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user_role (user_id, role_id, tenant_id)
-                        SELECT 'usr_support_01', role_id, tenant_id
+                        SELECT '000002', role_id, tenant_id
                         FROM rbac_role
                         WHERE tenant_id = ? AND role_code = 'SUPPORT_AGENT'
                         ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)
@@ -161,13 +167,15 @@ public class AuthSeedInitializer implements CommandLineRunner {
      */
     private void seedAdminAgent() {
         String tenantId = properties.getSeed().getTenantId();
+        String email = accountGenerator.emailPrefix("管理员") + "@cza.com";
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user (user_id, tenant_id, display_name, department_name, contact_phone, contact_email, enabled)
-                        VALUES ('usr_admin_01', ?, '管理员', '客服管理部', NULL, NULL, 1)
-                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), enabled = VALUES(enabled)
+                        VALUES ('000001', ?, '管理员', '客服管理部', NULL, ?, 1)
+                        ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), contact_email = VALUES(contact_email), enabled = VALUES(enabled)
                         """,
-                tenantId
+                tenantId,
+                email
         );
 
         jdbcTemplate.update(
@@ -175,7 +183,7 @@ public class AuthSeedInitializer implements CommandLineRunner {
                         INSERT INTO user_credential (
                             credential_id, tenant_id, user_id, login_name, password_hash, password_algo,
                             password_version, auth_version, failed_count, locked_until, last_login_at, last_login_ip, status
-                        ) VALUES (?, ?, 'usr_admin_01', 'admin01', ?, 'bcrypt', 1, 1, 0, NULL, NULL, NULL, 'ACTIVE')
+                        ) VALUES (?, ?, '000001', 'admin01', ?, 'bcrypt', 1, 1, 0, NULL, NULL, NULL, 'ACTIVE')
                         ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), status = VALUES(status)
                         """,
                 UUID.randomUUID().toString(),
@@ -196,7 +204,7 @@ public class AuthSeedInitializer implements CommandLineRunner {
         jdbcTemplate.update(
                 """
                         INSERT INTO app_user_role (user_id, role_id, tenant_id)
-                        SELECT 'usr_admin_01', role_id, tenant_id
+                        SELECT '000001', role_id, tenant_id
                         FROM rbac_role
                         WHERE tenant_id = ? AND role_code = 'SUPPORT_ADMIN'
                         ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id)

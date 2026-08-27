@@ -2,7 +2,7 @@ package com.cenziang.itsmpojo.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.cenziang.itsmpojo.entity.base.TenantCreatedEntity;
+import com.cenziang.itsmpojo.entity.base.TenantScopedEntity;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 @Setter
 @Accessors(chain = true)
 @TableName("ticket_status_history")
-public class TicketStatusHistoryEntity extends TenantCreatedEntity<TicketStatusHistoryEntity> {
+public class TicketStatusHistoryEntity extends TenantScopedEntity<TicketStatusHistoryEntity> {
     /**
      * 历史主键。
      */

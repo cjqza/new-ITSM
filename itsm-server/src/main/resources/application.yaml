@@ -36,9 +36,9 @@ itsm:
       private-key: ""
     seed:
       enabled: true
-      tenant-id: tenant_001
-      tenant-name: 示例企业
-      user-id: usr_10001
+      tenant-id: cza
+      tenant-name: cza集团
+      user-id: "000003"
       login-name: zhangsan
       password: P@ssw0rd123
       sso-code: one-time-code
@@ -52,6 +52,10 @@ itsm:
     rate-limit-max-per-ip: 5
     rate-limit-window-seconds: 60
     default-role-code: USER
+  chat:
+    cache-ttl-minutes: 30
+  ticket:
+    retention-days: 30
 
 springdoc:
   api-docs:

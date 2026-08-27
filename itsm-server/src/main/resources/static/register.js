@@ -50,7 +50,7 @@
   }
 
   function tenantHeader(form) {
-    return String(new FormData(form).get('tenantId') || 'tenant_001').trim();
+    return String(new FormData(form).get('tenantId') || 'cza').trim();
   }
 
   function startCountdown(seconds) {
@@ -73,6 +73,10 @@
     const phone = String(new FormData(form).get('phone') || '').trim();
     if (!phone) {
       showResult('err', '请输入手机号');
+      return;
+    }
+    if (!/^\d{11}$/.test(phone)) {
+      showResult('err', '手机号需为11位数字');
       return;
     }
     try {
@@ -99,6 +103,10 @@
     const form = forms.register;
     const tenantId = tenantHeader(form);
     const values = Object.fromEntries(new FormData(form).entries());
+    if (!/^\d{11}$/.test(String(values.phone || ''))) {
+      showResult('err', '手机号需为11位数字');
+      return;
+    }
     try {
       const body = await request(API.register, {
         method: 'POST',
@@ -112,7 +120,7 @@
         })
       });
       const data = body.data || {};
-      showResult('ok', '注册成功', `userId：${data.userId}，登录账号：${data.loginName}。请切换到“登录”标签登录。`);
+      showResult('ok', '注册成功', `工号：${data.userId}，邮箱：${data.email || '—'}。请用邮箱或工号登录。`);
       form.reset();
     } catch (error) {
       showResult('err', '注册失败', error.message);
