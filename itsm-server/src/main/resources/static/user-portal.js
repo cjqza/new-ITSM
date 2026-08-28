@@ -35,6 +35,8 @@
     actorDepartment: DATA.profiles.user.login.data.user.departmentName,
     view: 'MESSAGES',
     chat: { type: 'ASSISTANT', id: 'assistant' },
+    assistantStarted: false,
+    supportGroupSessionId: null,
     assistantDraft: '',
     colleagueDraft: '',
     contactKeyword: '',
@@ -557,6 +559,21 @@
     }
   }
 
+  async function sendSupportGroupMessage(sessionId, text) {
+    try {
+      await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(sessionId) + '/messages', {
+        clientMessageId: newClientMessageId(),
+        content: text
+      });
+      state.colleagueDraft = '';
+      await loadRemoteData();
+      state.scrollChatToBottomPending = true;
+      render();
+    } catch (error) {
+      showToast('发送失败', error.message, 'error');
+    }
+  }
+
   async function endCurrentSession() {
     const session = currentSession();
     if (!session) {
@@ -714,9 +731,14 @@
       });
       state.handoffOpen = false;
       state.handoffSuccess = created.ticketId;
+      if (session) {
+        state.supportGroupSessionId = session.sessionId;
+        state.assistantStarted = true;
+        state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + session.sessionId };
+      }
       await loadRemoteData();
       render();
-      showToast('转人工成功', `已生成工单 ${created.ticketNo}`, 'success');
+      showToast('转人工成功', `已生成工单 ${created.ticketNo}，已为你建群「IT客服」`, 'success');
     } catch (error) {
       showToast('转人工失败', error.message, 'error');
     }
@@ -1063,8 +1085,14 @@
   function renderMessages() {
     const sessions = userSessions();
     const colleagues = (state.colleagueConversations || []).slice().sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+    const supportGroupSession = state.supportGroupSessionId ? sessions.find((s) => s.sessionId === state.supportGroupSessionId) : null;
+    const assistantItem = { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' };
+    const groupItem = supportGroupSession
+      ? { key: 'group_' + supportGroupSession.sessionId, type: 'SUPPORT_GROUP', name: 'IT客服', subtitle: '转人工群聊', preview: '工单转人工后与 IT客服 的群聊', time: '现在', avatar: '客', tone: 'green' }
+      : null;
     const items = [
-      { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' },
+      ...(state.assistantStarted ? [assistantItem] : []),
+      ...(groupItem ? [groupItem] : []),
       ...colleagues.map((item) => ({ key: item.conversationId, type: 'COLLEAGUE', name: item.displayName, subtitle: item.departmentName, preview: item.lastMessage, time: formatDate(item.lastMessageAt), avatar: item.displayName.slice(0, 1), tone: '', unread: item.unreadCount || 0 }))
     ];
     const filtered = state.portalSearch ? items.filter((item) => [item.name, item.subtitle, item.preview].join(' ').toLowerCase().includes(state.portalSearch.trim().toLowerCase())) : items;
@@ -1074,13 +1102,25 @@
       </button>
     `).join('');
     const colleague = colleagues.find((item) => item.conversationId === state.chat.id);
-    const chatContent = state.chat.type === 'COLLEAGUE' ? renderColleagueChat(colleague) : renderAssistantChat(sessions);
+    const chatContent = state.chat.type === 'COLLEAGUE'
+      ? renderColleagueChat(colleague)
+      : (state.chat.type === 'SUPPORT_GROUP'
+          ? renderSupportGroupChat(supportGroupSession)
+          : (state.assistantStarted ? renderAssistantChat(sessions) : '<div class="chat-body"><div class="empty-state">IT 助手已移到工作台，请到工作台点击「咨询 IT 助手」开始对话。</div></div>'));
+
+    const headerTitle = state.chat.type === 'COLLEAGUE' ? (colleague ? colleague.displayName : '同事')
+      : (state.chat.type === 'SUPPORT_GROUP' ? 'IT客服' : 'IT 助手');
+    const headerAvatar = state.chat.type === 'COLLEAGUE' ? (colleague ? colleague.displayName.slice(0, 1) : '同')
+      : (state.chat.type === 'SUPPORT_GROUP' ? '客' : 'IT');
+    const headerTone = state.chat.type === 'ASSISTANT' ? 'blue' : 'green';
+    const headerSub = state.chat.type === 'COLLEAGUE' ? '同事对话 · 企业内部沟通'
+      : (state.chat.type === 'SUPPORT_GROUP' ? '转人工群聊 · 客服匿名显示' : '在线 · 可随时提问');
 
     renderShell('MESSAGES', `
       <section class="message-workspace">
-        <aside class="panel chat-list-panel"><div class="panel-head"><div><h1>消息</h1><p>IT 助手与同事会话</p></div></div><div class="search-box"><input class="text-input" data-bind="portalSearch" placeholder="搜索消息或联系人" value="${escapeHtml(state.portalSearch)}"></div><div class="chat-list">${sidebar || '<div class="empty-state">没有匹配的会话</div>'}</div></aside>
-        <section class="panel chat-panel"><header class="chat-header"><button class="message-slide-back" data-action="show-chat-list" title="返回会话列表">‹</button><div class="chat-person"><span class="chat-avatar ${state.chat.type === 'ASSISTANT' ? 'blue' : 'green'}">${state.chat.type === 'ASSISTANT' ? 'IT' : escapeHtml(colleague ? colleague.displayName.slice(0, 1) : '同')}</span><div><strong>${state.chat.type === 'ASSISTANT' ? 'IT 助手' : escapeHtml(colleague ? colleague.displayName : '同事')}</strong><small>${state.chat.type === 'ASSISTANT' ? '在线 · 可随时提问' : '同事对话 · 企业内部沟通'}</small></div></div><button class="icon-button" data-action="nav" data-view="WORKSPACE" title="工作台">台</button></header>${chatContent}</section>
-        <aside class="panel context-panel"><div class="panel-head"><h2>当前上下文</h2><p>聊天、工单与快捷服务</p></div>${renderContextCards(state.chat.type === 'ASSISTANT' ? 'IT 助手' : (colleague ? colleague.displayName : '同事'))}</aside>
+        <aside class="panel chat-list-panel"><div class="panel-head"><div><h1>消息</h1><p>IT 助手、IT客服 与同事会话</p></div></div><div class="search-box"><input class="text-input" data-bind="portalSearch" placeholder="搜索消息或联系人" value="${escapeHtml(state.portalSearch)}"></div><div class="chat-list">${sidebar || '<div class="empty-state">没有匹配的会话</div>'}</div></aside>
+        <section class="panel chat-panel"><header class="chat-header"><button class="message-slide-back" data-action="show-chat-list" title="返回会话列表">‹</button><div class="chat-person"><span class="chat-avatar ${headerTone}">${escapeHtml(headerAvatar)}</span><div><strong>${escapeHtml(headerTitle)}</strong><small>${escapeHtml(headerSub)}</small></div></div><button class="icon-button" data-action="nav" data-view="WORKSPACE" title="工作台">台</button></header>${chatContent}</section>
+        <aside class="panel context-panel"><div class="panel-head"><h2>当前上下文</h2><p>聊天、工单与快捷服务</p></div>${renderContextCards(state.chat.type === 'COLLEAGUE' ? (colleague ? colleague.displayName : '同事') : (state.chat.type === 'SUPPORT_GROUP' ? 'IT客服' : 'IT 助手'))}</aside>
       </section>
     `);
   }
@@ -1136,6 +1176,16 @@
     return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="${conversation.status.toLowerCase()}">${conversation.status === 'ONLINE' ? '在线' : conversation.status === 'BUSY' ? '忙碌' : '离线'}</span><small>${escapeHtml(conversation.departmentName)}</small></div><div class="message-thread">${olderBlock}${messageHtml || '<div class="empty-state">暂无消息</div>'}</div></div><form class="composer" id="colleague-chat-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 ${escapeHtml(conversation.displayName)}">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(conversation.displayName)} · ${escapeHtml(conversation.status)}</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
   }
 
+  function renderSupportGroupChat(session) {
+    const messages = session ? session.messages : [];
+    const messageHtml = messages.map((message) => {
+      const isUser = message.senderType === 'USER';
+      const label = isUser ? userProfile().displayName : 'IT客服';
+      return `<div class="chat-message ${isUser ? 'user' : 'assistant'}"><div class="message-avatar">${isUser ? escapeHtml(userProfile().displayName.slice(0, 1)) : '客'}</div><div class="message-body"><div class="message-meta"><span>${escapeHtml(label)}</span><time>${escapeHtml(formatDateTime(message.createdAt))}</time></div><div class="message-bubble">${escapeHtml(message.content)}</div></div></div>`;
+    }).join('');
+    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="online">群聊</span><small>IT客服 已接入</small></div><div class="message-thread">${messageHtml || '<div class="empty-state">已转人工，IT客服 即将接入</div>'}</div></div><form class="composer" id="support-group-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 IT客服">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>IT客服 · 群聊</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
+  }
+
   function renderContextCards(name) {
     const openStatuses = ['PENDING_ACCEPTANCE', 'IN_PROGRESS', 'PENDING_USER_CONFIRM', 'REOPENED'];
     const ticket = userTickets().find((item) => openStatuses.includes(item.status)) || userTickets()[0];
@@ -1162,6 +1212,7 @@
 
   function renderWorkspace() {
     const cards = [];
+    cards.push({ name: '咨询 IT 助手', desc: '在聊天框发起智能咨询', icon: '助', tone: 'blue', action: 'consult-assistant' });
     if (hasItsmAccess()) {
       cards.push({ name: 'ITSM 工单', desc: '在新窗口打开 ITSM 工单处理系统', icon: '工', tone: 'orange', action: 'open-window', url: './index.html?direct=1' });
     } else {
@@ -1180,7 +1231,9 @@
     const cardsHtml = cards.map((card) => {
       const attr = card.action === 'open-window'
         ? `data-action="open-window" data-url="${escapeHtml(card.url)}"`
-        : `data-action="nav" data-view="${card.target}"`;
+        : (card.action === 'consult-assistant'
+            ? `data-action="consult-assistant"`
+            : `data-action="nav" data-view="${card.target}"`);
       return `<button class="workspace-app ${card.tone}" ${attr}><span class="app-icon">${escapeHtml(card.icon)}</span><span class="app-copy"><strong>${escapeHtml(card.name)}</strong><small>${escapeHtml(card.desc)}</small></span><span class="app-open">打开</span></button>`;
     }).join('');
     renderShell('WORKSPACE', `<section class="page-section"><div class="page-heading"><div><h1>工作台</h1><p>从这里进入 ITSM 工单、数鲸看板与审批</p></div><span class="status-chip ok">当前用户工作台</span></div><div class="workspace-grid panel">${cardsHtml || '<div class="empty-state">暂无工作台应用</div>'}</div></section>`);
@@ -1488,6 +1541,15 @@
       state.chat = { type: 'ASSISTANT', id: 'assistant' };
       state.portalSearch = '';
       if (state.view === 'MESSAGES') state.scrollChatToBottomPending = true;
+      render();
+      return;
+    }
+    if (action === 'consult-assistant') {
+      state.assistantStarted = true;
+      state.view = 'MESSAGES';
+      state.chat = { type: 'ASSISTANT', id: 'assistant' };
+      state.portalSearch = '';
+      state.scrollChatToBottomPending = true;
       render();
       return;
     }
@@ -1916,6 +1978,13 @@
       sendColleagueMessage(conversation, text);
       return;
     }
+    if (form.id === 'support-group-form') {
+      event.preventDefault();
+      const text = String(new FormData(form).get('message') || '').trim();
+      if (!text || !state.supportGroupSessionId) return;
+      sendSupportGroupMessage(state.supportGroupSessionId, text);
+      return;
+    }
     if (form.id === 'oa-approval-form') {
       event.preventDefault();
       const values = new FormData(form);
@@ -1963,6 +2032,10 @@
       return;
     }
     if (target.closest('#colleague-chat-form')) {
+      state.colleagueDraft = target.value;
+      return;
+    }
+    if (target.closest('#support-group-form')) {
       state.colleagueDraft = target.value;
       return;
     }
@@ -2150,6 +2223,19 @@
         } else {
           updateNavBadge();
         }
+      }
+    });
+  }, 5000);
+
+  let lastApprovalSignature = '';
+  window.setInterval(() => {
+    if (!state.loggedIn) return;
+    Promise.all([loadMyRequests(), loadApprovals()]).then(() => {
+      const signature = (state.myRequests || []).map((r) => r.requestId + ':' + r.status).join('|') + '#' +
+        (state.approvals || []).map((r) => r.requestId + ':' + r.status).join('|');
+      if (signature !== lastApprovalSignature) {
+        lastApprovalSignature = signature;
+        if (state.view === 'APPROVALS') render();
       }
     });
   }, 5000);

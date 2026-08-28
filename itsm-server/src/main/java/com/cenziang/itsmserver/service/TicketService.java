@@ -93,6 +93,10 @@ public class TicketService {
         ticketMapper.insert(ticket);
         recordStatus(ticket, null, "PENDING_ACCEPTANCE", context.userId(), "USER", "TICKET_CREATED", "创建工单");
         auditService.recordTicketAction(context.tenantId(), ticket.getTicketId(), "TICKET_CREATED", context.userId(), "USER", "创建工单");
+        // 转人工：把关联会话升级成群，员工本人作为 USER 成员
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.ensureGroup(context.tenantId(), ticket.getSessionId(), context.userId());
+        }
         return new TicketDtos.CreateTicketResponse(ticket.getTicketId(), ticket.getTicketNo(), ticket.getStatus(),
                 ticket.getBusinessLineCode(), ticket.getRequesterId(), ticket.getSessionId(), ticket.getCreatedAt());
     }
@@ -208,12 +212,38 @@ public class TicketService {
             throw new BusinessException(ErrorCode.ILLEGAL_STATE_TRANSITION);
         }
         ticket.setStatus("IN_PROGRESS").setAssigneeId(context.userId()).setAcceptedAt(LocalDateTime.now());
-        ticket.setVersion(ticket.getVersion() + 1);
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
         }
         recordStatus(ticket, "PENDING_ACCEPTANCE", "IN_PROGRESS", context.userId(), "SUPPORT", "ACCEPT", request.note());
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.addSupportParticipant(context.tenantId(), ticket.getSessionId(), context.userId());
+        }
+        return detail(context, ticketId);
+    }
+
+    /**
+     * 客服将工单转让给同事：更新处理人，并把同事拉进会话群一起讨论。
+     */
+    @Transactional
+    public TicketDtos.TicketDetailResponse transfer(RequestContext context, String ticketId, TicketDtos.TransferTicketRequest request) {
+        if (!SUPPORT_ROLES.stream().anyMatch(context.roles()::contains)) {
+            throw new BusinessException(ErrorCode.ROLE_FORBIDDEN);
+        }
+        if (request.targetUserId() == null || request.targetUserId().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "targetUserId is required");
+        }
+        TicketEntity ticket = requireTicket(context.tenantId(), ticketId);
+        ticket.setAssigneeId(request.targetUserId());
+        int updated = ticketMapper.updateById(ticket);
+        if (updated < 1) {
+            throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
+        }
+        auditService.recordTicketAction(context.tenantId(), ticketId, "TICKET_TRANSFER", context.userId(), "SUPPORT", "转让给 " + request.targetUserId());
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.addSupportParticipant(context.tenantId(), ticket.getSessionId(), request.targetUserId());
+        }
         return detail(context, ticketId);
     }
 
@@ -232,9 +262,10 @@ public class TicketService {
         TicketClassificationEntity classification = classificationMapper.selectOne(new LambdaQueryWrapper<TicketClassificationEntity>()
                 .eq(TicketClassificationEntity::getTenantId, context.tenantId())
                 .eq(TicketClassificationEntity::getTicketId, ticketId));
-        if (classification == null) {
+        boolean isNew = classification == null;
+        if (isNew) {
             classification = new TicketClassificationEntity()
-                    .setTicketId(ticketId).setTenantId(context.tenantId()).setVersion(0L);
+                    .setTicketId(ticketId).setTenantId(context.tenantId());
         }
         if (request.version() != null && !request.version().equals(classification.getVersion())) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version mismatch");
@@ -243,8 +274,7 @@ public class TicketService {
                 .setSymptomId(request.symptomId()).setReasonId(request.reasonId())
                 .setSolutionMethodId(request.solutionMethodId()).setCustomReason(request.customReason())
                 .setCustomSolution(request.customSolution());
-        classification.setVersion(classification.getVersion() + 1);
-        if (classification.getVersion() == 1) {
+        if (isNew) {
             classificationMapper.insert(classification);
         } else {
             classificationMapper.updateById(classification);
@@ -269,7 +299,6 @@ public class TicketService {
         }
         ticket.setStatus("PENDING_USER_CONFIRM").setResolutionSummary(request.resolution())
                 .setResolutionType(request.resolutionType()).setResolvedBy(context.userId()).setResolvedAt(LocalDateTime.now());
-        ticket.setVersion(ticket.getVersion() + 1);
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
@@ -291,7 +320,6 @@ public class TicketService {
             throw new BusinessException(ErrorCode.ILLEGAL_STATE_TRANSITION);
         }
         ticket.setStatus("RESOLVED");
-        ticket.setVersion(ticket.getVersion() + 1);
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
@@ -313,7 +341,6 @@ public class TicketService {
             throw new BusinessException(ErrorCode.ILLEGAL_STATE_TRANSITION);
         }
         ticket.setStatus("CLOSED").setCloseReason(request.closeReason()).setClosedBy(context.userId()).setClosedAt(LocalDateTime.now());
-        ticket.setVersion(ticket.getVersion() + 1);
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
@@ -339,7 +366,6 @@ public class TicketService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "reason is required");
         }
         ticket.setStatus("REOPENED").setReopenReason(request.reason()).setReopenedBy(context.userId()).setReopenedAt(LocalDateTime.now());
-        ticket.setVersion(ticket.getVersion() + 1);
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");

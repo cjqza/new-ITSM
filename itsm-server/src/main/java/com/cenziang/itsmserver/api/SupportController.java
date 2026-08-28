@@ -57,6 +57,15 @@ public class SupportController extends ControllerSupport {
         return ok(ticketService.accept(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
     }
 
+    @Operation(summary = "转让工单给同事", description = "更新处理人并把同事拉进会话群")
+    @PostMapping("/{ticketId}/transfer")
+    public ApiResponse<TicketDtos.TicketDetailResponse> transfer(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+                                                                 @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                                 @Valid @RequestBody TicketDtos.TransferTicketRequest request,
+                                                                 HttpServletRequest httpServletRequest) {
+        return ok(ticketService.transfer(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
+    }
+
     @Operation(summary = "更新工单分类", description = "客服按标准字典补齐管理单元、症状、原因和解决方法")
     @PatchMapping("/{ticketId}/classification")
     public ApiResponse<TicketDtos.TicketDetailResponse> classify(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,

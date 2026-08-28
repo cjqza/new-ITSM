@@ -9,11 +9,13 @@ import com.cenziang.itsmcommon.api.PageResponse;
 import com.cenziang.itsmpojo.dto.ConversationDtos;
 import com.cenziang.itsmpojo.entity.AgentDecisionEntity;
 import com.cenziang.itsmpojo.entity.ConversationMessageEntity;
+import com.cenziang.itsmpojo.entity.ConversationParticipantEntity;
 import com.cenziang.itsmpojo.entity.ConversationSessionEntity;
 import com.cenziang.itsmserver.application.RequestContext;
 import com.cenziang.itsmserver.infrastructure.JsonSupport;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.AgentDecisionMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationMessageMapper;
+import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationParticipantMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationSessionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,17 +35,20 @@ import java.util.UUID;
 public class ConversationService {
     private final ConversationSessionMapper sessionMapper;
     private final ConversationMessageMapper messageMapper;
+    private final ConversationParticipantMapper participantMapper;
     private final AgentDecisionMapper decisionMapper;
     private final JsonSupport jsonSupport;
     private final ChatCacheService chatCacheService;
 
     public ConversationService(ConversationSessionMapper sessionMapper,
                                ConversationMessageMapper messageMapper,
+                               ConversationParticipantMapper participantMapper,
                                AgentDecisionMapper decisionMapper,
                                JsonSupport jsonSupport,
                                ChatCacheService chatCacheService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.participantMapper = participantMapper;
         this.decisionMapper = decisionMapper;
         this.jsonSupport = jsonSupport;
         this.chatCacheService = chatCacheService;
@@ -136,7 +141,11 @@ public class ConversationService {
     public ConversationDtos.SendMessageResponse sendMessage(RequestContext context, String sessionId,
                                                             ConversationDtos.SendMessageRequest request) {
         ConversationSessionEntity session = requireSession(context.tenantId(), sessionId);
-        if (!session.getUserId().equals(context.userId())) {
+        boolean isOwner = session.getUserId().equals(context.userId());
+        boolean isSupport = context.roles().contains("SUPPORT_AGENT")
+                || context.roles().contains("SUPPORT_ADMIN")
+                || context.roles().contains("SUPERVISOR");
+        if (!isOwner && !isSupport) {
             throw new BusinessException(ErrorCode.DATA_SCOPE_FORBIDDEN);
         }
         if (!"ACTIVE".equalsIgnoreCase(session.getStatus())) {
@@ -157,11 +166,16 @@ public class ConversationService {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "message already exists");
         }
 
+        String senderType = isOwner ? "USER" : "AGENT";
+        if (!isOwner) {
+            ensureParticipant(context.tenantId(), sessionId, context.userId(), "SUPPORT");
+        }
+
         ConversationMessageEntity userMessage = new ConversationMessageEntity()
                 .setMessageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
                 .setTenantId(context.tenantId())
                 .setSessionId(sessionId)
-                .setSenderType("USER")
+                .setSenderType(senderType)
                 .setSenderId(context.userId())
                 .setClientMessageId(request.clientMessageId())
                 .setContent(request.content())
@@ -234,5 +248,44 @@ public class ConversationService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "session not found");
         }
         return session;
+    }
+
+    /**
+     * 把会话升级为群：确保员工本人是 USER 参与者（转人工时调用）。
+     */
+    @Transactional
+    public void ensureGroup(String tenantId, String sessionId, String ownerUserId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        ensureParticipant(tenantId, sessionId, ownerUserId, "USER");
+    }
+
+    /**
+     * 把某个客服加入群（后续“转让给同事一起讨论”也走这里）。
+     */
+    @Transactional
+    public void addSupportParticipant(String tenantId, String sessionId, String supportUserId) {
+        if (sessionId == null || sessionId.isBlank() || supportUserId == null || supportUserId.isBlank()) {
+            return;
+        }
+        ensureParticipant(tenantId, sessionId, supportUserId, "SUPPORT");
+    }
+
+    private void ensureParticipant(String tenantId, String sessionId, String userId, String participantType) {
+        Long count = participantMapper.selectCount(new LambdaQueryWrapper<ConversationParticipantEntity>()
+                .eq(ConversationParticipantEntity::getTenantId, tenantId)
+                .eq(ConversationParticipantEntity::getSessionId, sessionId)
+                .eq(ConversationParticipantEntity::getUserId, userId));
+        if (count != null && count > 0) {
+            return;
+        }
+        participantMapper.insert(new ConversationParticipantEntity()
+                .setParticipantId("ptp_" + UUID.randomUUID().toString().replace("-", ""))
+                .setTenantId(tenantId)
+                .setSessionId(sessionId)
+                .setUserId(userId)
+                .setParticipantType(participantType)
+                .setJoinedAt(LocalDateTime.now()));
     }
 }

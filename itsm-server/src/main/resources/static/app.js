@@ -591,12 +591,10 @@
 
   const SUPPORT_AGENTS = [
     { userId: '000002', displayName: '客服一', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
-    { userId: '000016', displayName: '客服二', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
-    { userId: '000017', displayName: '客服三', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
-    { userId: '000018', displayName: '客服四', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
-    { userId: '000019', displayName: '零售客服一', businessLineCodes: ['RETAIL'] },
-    { userId: '000020', displayName: '售后客服一', businessLineCodes: ['AFTER_SALES'] },
-    { userId: '000022', displayName: '物流客服一', businessLineCodes: ['LOGISTICS'] }
+    { userId: '000004', displayName: '客服二', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
+    { userId: '000005', displayName: '客服三', businessLineCodes: ['IT_SUPPORT', 'ERP'] },
+    { userId: '000006', displayName: '客服四', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] },
+    { userId: '000007', displayName: '客服五', businessLineCodes: ['IT_SUPPORT', 'HR_SYSTEM'] }
   ];
 
   const BUSINESS_LINES = [
@@ -3396,21 +3394,23 @@
     return true;
   }
 
-  function applySameLineTransfer(ticketId) {
-    const ticket = DATA.tickets.find((item) => item.ticketId === ticketId);
+  async function applySameLineTransfer(ticketId) {
     const select = document.querySelector('[name="sameLineAgent"]');
-    if (!ticket || !select) return false;
-    const target = (DATA.supportAgents || SUPPORT_AGENTS).find((agent) => agent.userId === select.value);
-    if (!target) {
+    if (!select) return;
+    const targetUserId = String(select.value || '');
+    if (!targetUserId) {
       showToast('转交失败', '请选择同业务线同事', 'error');
-      return false;
+      return;
     }
-    const oldName = ticket.assignee ? ticket.assignee.displayName : '待分配';
-    ticket.assignee = { userId: target.userId, displayName: target.displayName };
-    appendOwnershipHistory(ticket, oldName, target.displayName, '同业务线转单', `${currentUser().displayName} 将工单转交给 ${target.displayName}`);
-    appendTicketHistory(ticket, ticket.status, `责任人转交给 ${target.displayName}`);
-    showToast('转交成功', `工单已转交给 ${target.displayName}`, 'success');
-    return true;
+    try {
+      await apiPost('/api/v1/support/tickets/' + encodeURIComponent(ticketId) + '/transfer', { targetUserId });
+      await loadRealTickets();
+      state.overlay = { type: 'ticket', ticketId };
+      render();
+      showToast('转交成功', `工单已转交给同事 ${targetUserId}，并已拉入会话群`, 'success');
+    } catch (error) {
+      showToast('转交失败', error.message, 'error');
+    }
   }
 
   function applyBusinessLineTransfer(ticketId) {
@@ -3929,10 +3929,7 @@
 
     if (action === 'apply-same-line-transfer') {
       const ticketId = target.dataset.ticketId;
-      if (applySameLineTransfer(ticketId)) {
-        state.overlay = { type: 'ticket', ticketId };
-        render();
-      }
+      applySameLineTransfer(ticketId);
       return;
     }
 

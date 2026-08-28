@@ -182,6 +182,12 @@ public final class TicketDtos {
     ) {
     }
 
+    @Schema(description = "转让工单请求")
+    public record TransferTicketRequest(
+            @Schema(description = "目标客服用户主键") String targetUserId
+    ) {
+    }
+
     @Schema(description = "分类更新请求")
     public record ClassificationUpdateRequest(
             @Schema(description = "管理单元") String managementUnitId,
