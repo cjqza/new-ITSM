@@ -25,9 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 工单服务。
@@ -49,12 +49,12 @@ public class TicketService {
     private final JsonSupport jsonSupport;
     private final AuditService auditService;
     private final ConversationService conversationService;
-    private final AtomicLong ticketSequence = new AtomicLong(1000);
+    private final OutboxService outboxService;
 
     public TicketService(TicketMapper ticketMapper, TicketClassificationMapper classificationMapper,
                          TicketStatusHistoryMapper statusHistoryMapper, RatingMapper ratingMapper,
                          ConversationMessageMapper messageMapper, JsonSupport jsonSupport, AuditService auditService,
-                         ConversationService conversationService) {
+                         ConversationService conversationService, OutboxService outboxService) {
         this.ticketMapper = ticketMapper;
         this.classificationMapper = classificationMapper;
         this.statusHistoryMapper = statusHistoryMapper;
@@ -63,6 +63,7 @@ public class TicketService {
         this.jsonSupport = jsonSupport;
         this.auditService = auditService;
         this.conversationService = conversationService;
+        this.outboxService = outboxService;
     }
 
     /**
@@ -78,7 +79,7 @@ public class TicketService {
         }
         TicketEntity ticket = new TicketEntity()
                 .setTicketId("tkt_" + UUID.randomUUID().toString().replace("-", ""))
-                .setTicketNo(String.valueOf(System.currentTimeMillis() % 10000000))
+                .setTicketNo(nextTicketNo(context.tenantId()))
                 .setTenantId(context.tenantId())
                 .setSource(request.source())
                 .setSessionId(request.sessionId())
@@ -93,10 +94,17 @@ public class TicketService {
         ticketMapper.insert(ticket);
         recordStatus(ticket, null, "PENDING_ACCEPTANCE", context.userId(), "USER", "TICKET_CREATED", "创建工单");
         auditService.recordTicketAction(context.tenantId(), ticket.getTicketId(), "TICKET_CREATED", context.userId(), "USER", "创建工单");
-        // 转人工：把关联会话升级成群，员工本人作为 USER 成员
+        // 转人工：把关联会话升级成群，员工本人作为 USER 成员，并回填工单号 + 问题简述作为群名
         if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            String groupName = ticket.getTicketNo() + " " + ticket.getTitle();
+            if (groupName.length() > 100) {
+                groupName = groupName.substring(0, 100);
+            }
             conversationService.ensureGroup(context.tenantId(), ticket.getSessionId(), context.userId());
+            conversationService.linkTicket(context.tenantId(), ticket.getSessionId(), ticket.getTicketId(), groupName);
         }
+        outboxService.publish(context.tenantId(), "TICKET_CREATED", "TICKET", ticket.getTicketId(),
+                Map.of("ticketId", ticket.getTicketId(), "ticketNo", ticket.getTicketNo(), "sessionId", ticket.getSessionId()));
         return new TicketDtos.CreateTicketResponse(ticket.getTicketId(), ticket.getTicketNo(), ticket.getStatus(),
                 ticket.getBusinessLineCode(), ticket.getRequesterId(), ticket.getSessionId(), ticket.getCreatedAt());
     }
@@ -124,7 +132,7 @@ public class TicketService {
         Page<TicketEntity> result = ticketMapper.selectPage(new Page<>(page, pageSize), wrapper);
         List<TicketDtos.TicketPageItem> items = result.getRecords().stream()
                 .map(t -> new TicketDtos.TicketPageItem(t.getTicketId(), t.getTicketNo(), t.getTitle(), t.getStatus(),
-                        t.getPriority(), t.getBusinessLineCode(), t.getAssigneeId(), t.getUpdatedAt()))
+                        t.getPriority(), t.getBusinessLineCode(), t.getAssigneeId(), t.getSessionId(), t.getUpdatedAt()))
                 .toList();
         return PageResponse.of(items, result.getCurrent(), result.getSize(), result.getTotal());
     }
@@ -220,6 +228,8 @@ public class TicketService {
         if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
             conversationService.addSupportParticipant(context.tenantId(), ticket.getSessionId(), context.userId());
         }
+        outboxService.publish(context.tenantId(), "TICKET_ACCEPTED", "TICKET", ticketId,
+                Map.of("ticketId", ticketId, "sessionId", ticket.getSessionId(), "agentId", context.userId()));
         return detail(context, ticketId);
     }
 
@@ -244,6 +254,8 @@ public class TicketService {
         if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
             conversationService.addSupportParticipant(context.tenantId(), ticket.getSessionId(), request.targetUserId());
         }
+        outboxService.publish(context.tenantId(), "TICKET_TRANSFERRED", "TICKET", ticketId,
+                Map.of("ticketId", ticketId, "sessionId", ticket.getSessionId(), "agentId", request.targetUserId()));
         return detail(context, ticketId);
     }
 
@@ -410,6 +422,15 @@ public class TicketService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "ticket not found");
         }
         return ticket;
+    }
+
+    /**
+     * 生成顺序工单号：7 位数字，从 1000000 开始递增。
+     */
+    private String nextTicketNo(String tenantId) {
+        Long max = ticketMapper.selectMaxTicketNo(tenantId);
+        long next = (max == null ? 999999L : max) + 1;
+        return String.valueOf(next);
     }
 
     private void recordStatus(TicketEntity ticket, String from, String to, String operator, String operatorType, String action, String note) {

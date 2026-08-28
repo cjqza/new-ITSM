@@ -214,6 +214,7 @@
       status: item.status,
       priority: item.priority,
       businessLineCode: item.businessLineCode,
+      sessionId: item.sessionId,
       classification: null,
       assignee: item.assigneeId ? { userId: item.assigneeId, displayName: item.assigneeId } : null,
       conversation: null,
@@ -735,6 +736,9 @@
         state.supportGroupSessionId = session.sessionId;
         state.assistantStarted = true;
         state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + session.sessionId };
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+          chatSocket.send(JSON.stringify({ action: 'subscribe', sessionId: session.sessionId }));
+        }
       }
       await loadRemoteData();
       render();
@@ -1028,7 +1032,7 @@
     const unreadCount = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
     const viewLabels = {
       MESSAGES: '消息',
-      HISTORY: '历史消息',
+      HISTORY: '历史工单',
       CONTACTS: '联系人',
       WORKSPACE: '工作台',
       ITSM: 'ITSM 工单',
@@ -1039,7 +1043,7 @@
     };
     const views = [
       { key: 'MESSAGES', label: '消息' },
-      { key: 'HISTORY', label: '历史消息' },
+      { key: 'HISTORY', label: '历史工单' },
       { key: 'CONTACTS', label: '联系人' },
       { key: 'WORKSPACE', label: '工作台' }
     ];
@@ -1088,7 +1092,7 @@
     const supportGroupSession = state.supportGroupSessionId ? sessions.find((s) => s.sessionId === state.supportGroupSessionId) : null;
     const assistantItem = { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' };
     const groupItem = supportGroupSession
-      ? { key: 'group_' + supportGroupSession.sessionId, type: 'SUPPORT_GROUP', name: 'IT客服', subtitle: '转人工群聊', preview: '工单转人工后与 IT客服 的群聊', time: '现在', avatar: '客', tone: 'green' }
+      ? { key: 'group_' + supportGroupSession.sessionId, type: 'SUPPORT_GROUP', name: (supportGroupSession.subject || 'IT客服'), subtitle: '转人工群聊', preview: '工单转人工后与 IT客服 的群聊', time: '现在', avatar: '客', tone: 'green' }
       : null;
     const items = [
       ...(state.assistantStarted ? [assistantItem] : []),
@@ -1178,12 +1182,13 @@
 
   function renderSupportGroupChat(session) {
     const messages = session ? session.messages : [];
+    const groupName = (session && session.subject) || 'IT客服';
     const messageHtml = messages.map((message) => {
       const isUser = message.senderType === 'USER';
-      const label = isUser ? userProfile().displayName : 'IT客服';
+      const label = isUser ? userProfile().displayName : (message.senderDisplayName || 'IT客服');
       return `<div class="chat-message ${isUser ? 'user' : 'assistant'}"><div class="message-avatar">${isUser ? escapeHtml(userProfile().displayName.slice(0, 1)) : '客'}</div><div class="message-body"><div class="message-meta"><span>${escapeHtml(label)}</span><time>${escapeHtml(formatDateTime(message.createdAt))}</time></div><div class="message-bubble">${escapeHtml(message.content)}</div></div></div>`;
     }).join('');
-    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="online">群聊</span><small>IT客服 已接入</small></div><div class="message-thread">${messageHtml || '<div class="empty-state">已转人工，IT客服 即将接入</div>'}</div></div><form class="composer" id="support-group-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 IT客服">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>IT客服 · 群聊</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
+    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="online">群聊</span><small>${escapeHtml(groupName)}</small></div><div class="message-thread">${messageHtml || '<div class="empty-state">已转人工，IT客服 即将接入</div>'}</div></div><form class="composer" id="support-group-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 IT客服">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(groupName)} · 群聊</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
   }
 
   function renderContextCards(name) {
@@ -1452,8 +1457,8 @@
 
   function renderHistory() {
     const tickets = historyTickets();
-    const rows = tickets.map((ticket) => `<button class="history-row" data-action="open-ticket" data-ticket-id="${escapeHtml(ticket.ticketId)}"><span class="status-tag ${statusClass(ticket.status)}">${escapeHtml(statusLabel(ticket.status))}</span><span class="history-main"><strong>${escapeHtml(ticket.title)}</strong><small>${escapeHtml(ticket.description)}</small></span><span class="history-meta"><b>${escapeHtml(ticket.ticketNo)}</b><time>${escapeHtml(formatDateTime(ticket.updatedAt || ticket.createdAt))}</time></span><span class="history-arrow">›</span></button>`).join('');
-    renderShell('HISTORY', `<section class="page-section"><div class="page-heading"><div><h1>历史消息</h1><p>仅展示最近 30 天的用户工单信息</p></div><span class="status-chip info">${tickets.length} 条 · 最近30天</span></div><div class="history-list panel">${rows || '<div class="empty-state">最近 30 天暂无工单</div>'}</div></section>`);
+    const rows = tickets.map((ticket) => `<button class="history-row" data-action="open-history-ticket" data-ticket-id="${escapeHtml(ticket.ticketId)}" data-session-id="${escapeHtml(ticket.sessionId || '')}"><span class="status-tag ${statusClass(ticket.status)}">${escapeHtml(statusLabel(ticket.status))}</span><span class="history-main"><strong>${escapeHtml(ticket.title)}</strong><small>${escapeHtml(ticket.description)}</small></span><span class="history-meta"><b>${escapeHtml(ticket.ticketNo)}</b><time>${escapeHtml(formatDateTime(ticket.updatedAt || ticket.createdAt))}</time></span><span class="history-arrow">›</span></button>`).join('');
+    renderShell('HISTORY', `<section class="page-section"><div class="page-heading"><div><h1>历史工单</h1><p>仅展示最近 30 天的用户工单信息，点击可进入对应群聊</p></div><span class="status-chip info">${tickets.length} 条 · 最近30天</span></div><div class="history-list panel">${rows || '<div class="empty-state">最近 30 天暂无工单</div>'}</div></section>`);
   }
 
   function renderWhalePermission() {
@@ -1551,6 +1556,11 @@
       state.portalSearch = '';
       state.scrollChatToBottomPending = true;
       render();
+      if (!currentSession()) {
+        apiPost('/api/v1/conversations/sessions', { channel: 'WORKBENCH', subject: 'IT 助手' })
+          .then(() => loadRemoteData().finally(() => { state.scrollChatToBottomPending = true; render(); }))
+          .catch(() => {});
+      }
       return;
     }
     if (action === 'toggle-profile') {
@@ -1876,6 +1886,21 @@
     }
     if (action === 'open-ticket') {
       openTicketDetail(target.dataset.ticketId);
+      return;
+    }
+    if (action === 'open-history-ticket') {
+      const sessionId = target.dataset.sessionId;
+      if (sessionId) {
+        state.supportGroupSessionId = sessionId;
+        state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + sessionId };
+        state.view = 'MESSAGES';
+        const session = remoteData.sessions.find((s) => s.sessionId === sessionId);
+        if (session && !session.messages) loadSessionMessages(session);
+        state.scrollChatToBottomPending = true;
+        render();
+      } else {
+        openTicketDetail(target.dataset.ticketId);
+      }
       return;
     }
     if (action === 'close-ticket-detail') {
@@ -2240,11 +2265,41 @@
     });
   }, 5000);
 
+  let chatSocket = null;
+  function connectChatSocket() {
+    if (!state.loggedIn || !session.accessToken) return;
+    if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const url = proto + location.host + '/ws/chat?token=' + encodeURIComponent(session.accessToken);
+    chatSocket = new WebSocket(url);
+    chatSocket.onopen = () => {
+      if (state.supportGroupSessionId) {
+        chatSocket.send(JSON.stringify({ action: 'subscribe', sessionId: state.supportGroupSessionId }));
+      }
+    };
+    chatSocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data && data.sessionId && data.sessionId === state.supportGroupSessionId) {
+          const session = remoteData.sessions.find((s) => s.sessionId === data.sessionId);
+          if (session) {
+            loadSessionMessages(session).then(() => {
+              state.scrollChatToBottomPending = true;
+              render();
+            });
+          }
+        }
+      } catch (e) {}
+    };
+    chatSocket.onclose = () => { chatSocket = null; };
+  }
+
   if (state.loggedIn) {
     render();
     Promise.all([loadMe(), loadRemoteData()]).finally(() => {
       state.scrollChatToBottomPending = true;
       render();
+      connectChatSocket();
     });
   } else {
     render();

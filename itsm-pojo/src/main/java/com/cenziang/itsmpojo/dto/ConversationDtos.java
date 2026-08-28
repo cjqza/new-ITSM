@@ -58,8 +58,18 @@ public final class ConversationDtos {
     public record SessionMessageItem(
             @Schema(description = "消息主键") String messageId,
             @Schema(description = "发送方类型") String senderType,
+            @Schema(description = "发送方用户主键") String senderId,
+            @Schema(description = "发送方展示名（客服匿名别名）") String senderDisplayName,
             @Schema(description = "消息内容") String content,
             @Schema(description = "创建时间") LocalDateTime createdAt
+    ) {
+    }
+
+    @Schema(description = "会话参与者视图")
+    public record ParticipantView(
+            @Schema(description = "用户主键") String userId,
+            @Schema(description = "参与者类型") String participantType,
+            @Schema(description = "展示别名（如 IT助手1号）") String displayAlias
     ) {
     }
 
@@ -68,7 +78,9 @@ public final class ConversationDtos {
             @Schema(description = "会话主键") String sessionId,
             @Schema(description = "会话状态") String status,
             @Schema(description = "关联工单") String ticketId,
+            @Schema(description = "会话主题（群名）") String subject,
             @Schema(description = "会话摘要") String summary,
+            @Schema(description = "参与者") List<ParticipantView> participants,
             @Schema(description = "消息分页") PageResponse<SessionMessageItem> messages
     ) {
     }

@@ -304,7 +304,10 @@
 
   async function loadRealSessions() {
     try {
-      const page = await apiGet('/api/v1/conversations/sessions?page=1&pageSize=50');
+      const url = isSupportRole()
+        ? '/api/v1/conversations/sessions/mine?page=1&pageSize=50'
+        : '/api/v1/conversations/sessions?page=1&pageSize=50';
+      const page = await apiGet(url);
       const sessions = (page.items || []).map(mapSessionItem);
       DATA.sessions = sessions;
       await Promise.all(sessions.map((session) => loadSessionMessages(session)));
@@ -620,6 +623,7 @@
     route: 'HOME',
     activeSessionId: DATA.sessions[0] ? DATA.sessions[0].sessionId : null,
     activeTicketId: DATA.tickets[0] ? DATA.tickets[0].ticketId : null,
+    supportTab: 'desk',
     activeDictTab: 'MANAGEMENT_UNIT',
     activeRoleId: 'role_support_agent',
     overlay: null,
@@ -1241,8 +1245,11 @@
       lastDivider = messageDay;
 
       const senderClass = message.senderType === 'USER' ? 'user' : message.senderType === 'SYSTEM' ? 'system' : 'assistant';
-      const senderLabel = message.senderType === 'USER' ? currentUser().displayName : message.senderType === 'SYSTEM' ? '系统' : '智能助手';
-      const avatar = message.senderType === 'USER' ? '我' : message.senderType === 'SYSTEM' ? '系' : '助';
+      const senderLabel = message.senderType === 'USER'
+        ? (isSupportRole() ? '用户' : currentUser().displayName)
+        : message.senderType === 'SYSTEM' ? '系统'
+        : (message.senderDisplayName || '智能助手');
+      const avatar = message.senderType === 'USER' ? (isSupportRole() ? '客' : '我') : message.senderType === 'SYSTEM' ? '系' : '助';
 
       return `
         ${divider}
@@ -1368,6 +1375,7 @@
                 ${ticket ? `<button class="ghost-button" data-action="open-ticket" data-ticket-id="${ticket.ticketId}">打开工单</button>` : ''}
                 <button class="ghost-button" data-action="handoff">转人工</button>
                 ${hasPermission('ticket:create') ? '<button class="primary-button" data-action="create-ticket">创建工单</button>' : ''}
+                ${isSupportRole() ? '<button class="ghost-button" data-action="support-tab" data-tab="desk">返回服务台</button>' : ''}
               </div>
             </div>
             <div class="chat-subheader">
@@ -1518,6 +1526,7 @@
           <div class="support-board-nav-right">
             <span class="status-chip ok">${escapeHtml(String(supportDraftTickets().length))} 条草稿</span>
             <span class="status-chip info">${escapeHtml(String(supportMineTickets().length))} 条待我处理</span>
+            <button class="ghost-button" data-action="support-tab" data-tab="chat">消息</button>
           </div>
         </div>
 
@@ -1574,7 +1583,11 @@
 
   function renderSupportHomePage() {
     if (isSupportRole()) {
-      renderSupportWorkbenchHomePage();
+      if (state.supportTab === 'chat') {
+        renderUserHomePage();
+      } else {
+        renderSupportWorkbenchHomePage();
+      }
       return;
     }
     const tickets = visibleTickets();
@@ -3788,6 +3801,12 @@
       state.activeSessionId = target.dataset.sessionId;
       const session = getCurrentSession();
       state.activeTicketId = session.ticketId || state.activeTicketId;
+      render();
+      return;
+    }
+
+    if (action === 'support-tab') {
+      state.supportTab = target.dataset.tab || 'desk';
       render();
       return;
     }

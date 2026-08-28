@@ -22,7 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -39,19 +42,22 @@ public class ConversationService {
     private final AgentDecisionMapper decisionMapper;
     private final JsonSupport jsonSupport;
     private final ChatCacheService chatCacheService;
+    private final OutboxService outboxService;
 
     public ConversationService(ConversationSessionMapper sessionMapper,
                                ConversationMessageMapper messageMapper,
                                ConversationParticipantMapper participantMapper,
                                AgentDecisionMapper decisionMapper,
                                JsonSupport jsonSupport,
-                               ChatCacheService chatCacheService) {
+                               ChatCacheService chatCacheService,
+                               OutboxService outboxService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.participantMapper = participantMapper;
         this.decisionMapper = decisionMapper;
         this.jsonSupport = jsonSupport;
         this.chatCacheService = chatCacheService;
+        this.outboxService = outboxService;
     }
 
     /**
@@ -107,6 +113,44 @@ public class ConversationService {
     }
 
     /**
+     * 查询当前用户参与的所有会话（客服端消息面板用）。
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<ConversationDtos.SessionListItem> listMySessions(RequestContext context, int page, int pageSize) {
+        List<ConversationParticipantEntity> participants = participantMapper.selectList(
+                new LambdaQueryWrapper<ConversationParticipantEntity>()
+                        .eq(ConversationParticipantEntity::getTenantId, context.tenantId())
+                        .eq(ConversationParticipantEntity::getUserId, context.userId()));
+        List<String> sessionIds = participants.stream()
+                .map(ConversationParticipantEntity::getSessionId)
+                .distinct()
+                .toList();
+        if (sessionIds.isEmpty()) {
+            return PageResponse.of(List.of(), page, pageSize, 0);
+        }
+        Page<ConversationSessionEntity> result = sessionMapper.selectPage(
+                new Page<>(page, pageSize),
+                new LambdaQueryWrapper<ConversationSessionEntity>()
+                        .eq(ConversationSessionEntity::getTenantId, context.tenantId())
+                        .in(ConversationSessionEntity::getSessionId, sessionIds)
+                        .orderByDesc(ConversationSessionEntity::getLastMessageAt)
+                        .orderByDesc(ConversationSessionEntity::getCreatedAt));
+        List<ConversationDtos.SessionListItem> items = result.getRecords().stream()
+                .map(session -> new ConversationDtos.SessionListItem(
+                        session.getSessionId(),
+                        session.getUserId(),
+                        session.getChannel(),
+                        session.getSubject(),
+                        session.getStatus(),
+                        session.getSummary(),
+                        session.getTicketId(),
+                        session.getLastMessageAt(),
+                        session.getCreatedAt()))
+                .toList();
+        return PageResponse.of(items, result.getCurrent(), result.getSize(), result.getTotal());
+    }
+
+    /**
      * 读取会话详情。
      */
     @Transactional(readOnly = true)
@@ -117,6 +161,13 @@ public class ConversationService {
                 && !context.roles().contains("SUPPORT_ADMIN") && !context.roles().contains("SUPERVISOR")) {
             throw new BusinessException(ErrorCode.DATA_SCOPE_FORBIDDEN);
         }
+        List<ConversationDtos.ParticipantView> participants = listParticipants(context.tenantId(), sessionId);
+        Map<String, String> supportAlias = new HashMap<>();
+        for (ConversationDtos.ParticipantView p : participants) {
+            if ("SUPPORT".equals(p.participantType())) {
+                supportAlias.put(p.userId(), p.displayAlias());
+            }
+        }
         List<ConversationDtos.SessionMessageItem> messages = chatCacheService.getOrLoad(sessionId, () -> {
             Page<ConversationMessageEntity> page = messageMapper.selectPage(
                     new Page<>(messagePage, messagePageSize),
@@ -126,11 +177,15 @@ public class ConversationService {
                             .orderByAsc(ConversationMessageEntity::getCreatedAt)
             );
             return page.getRecords().stream()
-                    .map(m -> new ConversationDtos.SessionMessageItem(m.getMessageId(), m.getSenderType(), m.getContent(), m.getCreatedAt()))
+                    .map(m -> new ConversationDtos.SessionMessageItem(
+                            m.getMessageId(), m.getSenderType(), m.getSenderId(),
+                            senderDisplayName(m.getSenderType(), m.getSenderId(), supportAlias),
+                            m.getContent(), m.getCreatedAt()))
                     .toList();
         });
         return new ConversationDtos.SessionDetailResponse(
-                session.getSessionId(), session.getStatus(), session.getTicketId(), session.getSummary(),
+                session.getSessionId(), session.getStatus(), session.getTicketId(), session.getSubject(),
+                session.getSummary(), participants,
                 PageResponse.of(messages, messagePage, messagePageSize, messages.size()));
     }
 
@@ -166,7 +221,7 @@ public class ConversationService {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "message already exists");
         }
 
-        String senderType = isOwner ? "USER" : "AGENT";
+        String senderType = isOwner ? "USER" : (isSupport ? "SUPPORT" : "AGENT");
         if (!isOwner) {
             ensureParticipant(context.tenantId(), sessionId, context.userId(), "SUPPORT");
         }
@@ -186,6 +241,8 @@ public class ConversationService {
                 .setSummary(request.content().length() > 100 ? request.content().substring(0, 100) : request.content())
                 .setLastMessageAt(LocalDateTime.now()));
         chatCacheService.evict(sessionId);
+        outboxService.publish(context.tenantId(), "MESSAGE_SENT", "CONVERSATION", sessionId,
+                Map.of("messageId", userMessage.getMessageId(), "senderType", senderType, "senderId", context.userId()));
 
         return new ConversationDtos.SendMessageResponse(userMessage.getMessageId(), sessionId, "AGENT_PROCESSING", null, null, session.getStatus());
     }
@@ -251,6 +308,22 @@ public class ConversationService {
     }
 
     /**
+     * 转人工时把会话与工单绑定，并把会话主题改为「工单号 + 问题简述」群名。
+     */
+    @Transactional
+    public void linkTicket(String tenantId, String sessionId, String ticketId, String groupSubject) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        sessionMapper.update(null, new LambdaUpdateWrapper<ConversationSessionEntity>()
+                .eq(ConversationSessionEntity::getTenantId, tenantId)
+                .eq(ConversationSessionEntity::getSessionId, sessionId)
+                .set(ConversationSessionEntity::getTicketId, ticketId)
+                .set(ConversationSessionEntity::getSubject, groupSubject));
+        chatCacheService.evict(sessionId);
+    }
+
+    /**
      * 把会话升级为群：确保员工本人是 USER 参与者（转人工时调用）。
      */
     @Transactional
@@ -287,5 +360,34 @@ public class ConversationService {
                 .setUserId(userId)
                 .setParticipantType(participantType)
                 .setJoinedAt(LocalDateTime.now()));
+    }
+
+    private List<ConversationDtos.ParticipantView> listParticipants(String tenantId, String sessionId) {
+        List<ConversationParticipantEntity> rows = participantMapper.selectList(
+                new LambdaQueryWrapper<ConversationParticipantEntity>()
+                        .eq(ConversationParticipantEntity::getTenantId, tenantId)
+                        .eq(ConversationParticipantEntity::getSessionId, sessionId)
+                        .orderByAsc(ConversationParticipantEntity::getJoinedAt));
+        int supportIndex = 0;
+        List<ConversationDtos.ParticipantView> result = new ArrayList<>();
+        for (ConversationParticipantEntity p : rows) {
+            String alias = null;
+            if ("SUPPORT".equals(p.getParticipantType())) {
+                supportIndex++;
+                alias = "IT助手" + supportIndex + "号";
+            }
+            result.add(new ConversationDtos.ParticipantView(p.getUserId(), p.getParticipantType(), alias));
+        }
+        return result;
+    }
+
+    private String senderDisplayName(String senderType, String senderId, Map<String, String> supportAlias) {
+        if ("SUPPORT".equals(senderType)) {
+            return supportAlias.getOrDefault(senderId, "IT客服");
+        }
+        if ("AGENT".equals(senderType)) {
+            return "IT助手";
+        }
+        return null;
     }
 }

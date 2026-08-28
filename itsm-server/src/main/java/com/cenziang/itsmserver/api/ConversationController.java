@@ -52,6 +52,16 @@ public class ConversationController extends ControllerSupport {
         return ok(conversationService.listSessions(context, page, pageSize, keyword), httpServletRequest);
     }
 
+    @Operation(summary = "查询我参与的会话", description = "返回当前用户作为参与者的会话（客服端消息面板用）")
+    @GetMapping("/sessions/mine")
+    public ApiResponse<PageResponse<ConversationDtos.SessionListItem>> listMySessions(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+                                                                                     @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
+                                                                                     @Parameter(description = "页大小") @RequestParam(defaultValue = "20") int pageSize,
+                                                                                     HttpServletRequest httpServletRequest) {
+        RequestContext context = context(httpServletRequest, tenantId);
+        return ok(conversationService.listMySessions(context, page, pageSize), httpServletRequest);
+    }
+
     @Operation(summary = "读取会话", description = "返回会话基本信息、消息列表和关联工单")
     @GetMapping("/sessions/{sessionId}")
     public ApiResponse<ConversationDtos.SessionDetailResponse> getSession(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,

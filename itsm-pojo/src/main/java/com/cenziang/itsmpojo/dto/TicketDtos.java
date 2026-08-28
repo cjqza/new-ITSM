@@ -124,6 +124,7 @@ public final class TicketDtos {
             @Schema(description = "优先级") String priority,
             @Schema(description = "业务线编码") String businessLineCode,
             @Schema(description = "处理人") String assigneeId,
+            @Schema(description = "关联会话") String sessionId,
             @Schema(description = "更新时间") LocalDateTime updatedAt
     ) {
     }
