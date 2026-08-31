@@ -1,9 +1,0 @@
-spring:
-  application:
-    name: ITSM
-
-itsm:
-  agent:
-    mode: reserved-stub
-    provider: python-agent
-    confidence-threshold: 0.65

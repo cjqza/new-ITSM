@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ITSM 一期静态 UI 原型</title>
+  <style>
+    :root {
+      --navy: #163653;
+      --navy-deep: #102b43;
+      --blue: #1769e0;
+      --blue-soft: #eaf3ff;
+      --workspace: #f4f6f8;
+      --panel: #ffffff;
+      --line: #e4e9ef;
+      --text: #253548;
+      --muted: #738197;
+      --green: #2f9e16;
+      --green-soft: #eaf7e7;
+      --amber: #d88a00;
+      --amber-soft: #fff5dd;
+      --red: #e5484d;
+      --red-soft: #fff0f0;
+      --purple: #7654c8;
+      --shadow: 0 8px 24px rgba(24, 49, 75, .08);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      color: var(--text);
+      background: var(--workspace);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: var(--workspace); }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .6; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    .demo-strip {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      color: #d8e6f2;
+      background: #0d2a42;
+      font-size: 12px;
+    }
+    .demo-strip strong { color: #fff; font-weight: 600; }
+    .demo-strip span:last-child { color: #a9bfd1; }
+
+    .app-shell { min-height: calc(100vh - 28px); display: flex; }
+    .sidebar {
+      width: 68px;
+      flex: 0 0 68px;
+      background: var(--navy);
+      color: #dce8f2;
+      transition: width .2s ease;
+      overflow: hidden;
+      z-index: 4;
+    }
+    .brand {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .brand-name { display: none; margin-left: 10px; white-space: nowrap; }
+    .nav-list { padding: 10px 0; }
+    .nav-button {
+      width: 100%;
+      min-height: 70px;
+      border: 0;
+      border-left: 3px solid transparent;
+      background: transparent;
+      color: #dbe7f1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-size: 12px;
+    }
+    .nav-button:hover { background: rgba(255,255,255,.08); }
+    .nav-button.active {
+      background: var(--navy-deep);
+      border-left-color: #4b9aff;
+      color: #fff;
+    }
+    .nav-icon { font-size: 21px; line-height: 1; }
+    .main-area { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+    .topbar {
+      height: 48px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      gap: 16px;
+    }
+    .breadcrumbs { display: flex; align-items: center; gap: 9px; color: #5f6f82; font-size: 14px; min-width: 0; }
+    .breadcrumbs strong { color: var(--text); font-weight: 600; }
+    .crumb-sep { color: #a8b2bf; }
+    .top-actions { display: flex; align-items: center; gap: 12px; color: #637186; }
+    .icon-button, .ghost-button, .primary-button, .danger-button, .small-button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 4px;
+      transition: background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+    }
+    .icon-button:hover, .ghost-button:hover, .small-button:hover { border-color: #b8c8dc; background: #f8fbff; }
+    .ghost-button, .primary-button, .danger-button, .small-button { padding: 7px 12px; font-size: 13px; }
+    .primary-button { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .primary-button:hover { background: #0d58c5; border-color: #0d58c5; }
+    .danger-button { border-color: #f3b5b7; color: var(--red); background: #fff; }
+    .danger-button:hover { background: var(--red-soft); }
+    .small-button { padding: 5px 9px; color: var(--blue); }
+    .user-chip { display: flex; align-items: center; gap: 8px; color: #46566a; font-size: 13px; font-weight: 600; }
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #dce4ef;
+      color: #45627d;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .tabbar {
+      height: 34px;
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      padding: 0 14px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+    }
+    .tab {
+      flex: 0 0 auto;
+      padding: 0 13px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: #6f7d90;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .tab.active { border-bottom-color: var(--blue); color: var(--blue); font-weight: 600; }
+    .workspace { flex: 1; min-width: 0; padding: 18px; overflow: auto; }
+    .page-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .page-heading h1 { margin: 0; font-size: 22px; line-height: 1.35; color: #1e2d3e; }
+    .page-heading p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+    .heading-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 0 1px 1px rgba(24,49,75,.02);
+    }
+    .panel-header {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-header h2 { margin: 0; font-size: 15px; color: #1e2d3e; }
+    .panel-header small { color: var(--muted); font-size: 12px; }
+    .status-tag, .contract-tag, .priority-tag, .mini-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .status-PENDING_ACCEPTANCE { background: var(--amber-soft); color: #9a6200; }
+    .status-IN_PROGRESS { background: var(--blue-soft); color: var(--blue); }
+    .status-PENDING_USER_CONFIRM { background: #f3efff; color: var(--purple); }
+    .status-RESOLVED { background: var(--green-soft); color: #25820f; }
+    .status-CLOSED { background: #eef1f4; color: #5d6b7d; }
+    .status-REOPENED { background: var(--red-soft); color: #b32a31; }
+    .priority-HIGH { background: var(--red-soft); color: #b32a31; }
+    .priority-MEDIUM { background: var(--amber-soft); color: #9a6200; }
+    .priority-LOW { background: var(--green-soft); color: #25820f; }
+    .contract-tag { background: #f4f7fb; border: 1px solid #dce6f1; color: #66788e; }
+    .mini-badge { min-height: 19px; padding: 1px 6px; background: #edf4ff; color: var(--blue); }
+    .muted { color: var(--muted); }
+    .link-button { border: 0; padding: 0; color: var(--blue); background: transparent; cursor: pointer; text-align: left; }
+
+    /* User assistant */
+    .assistant-layout { display: grid; grid-template-columns: 220px minmax(360px, 1fr) 260px; gap: 14px; min-height: 650px; }
+    .session-list { display: flex; flex-direction: column; min-width: 0; }
+    .session-search { padding: 10px; border-bottom: 1px solid var(--line); }
+    .text-input, .select-input, .textarea-input {
+      width: 100%;
+      border: 1px solid #d6dee8;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      outline: none;
+    }
+    .text-input, .select-input { height: 34px; padding: 0 10px; }
+    .textarea-input { min-height: 92px; padding: 10px; resize: vertical; line-height: 1.55; }
+    .text-input:focus, .select-input:focus, .textarea-input:focus { border-color: #79aaf0; box-shadow: 0 0 0 2px rgba(23,105,224,.10); }
+    .session-items { overflow: auto; }
+    .session-item {
+      width: 100%;
+      display: block;
+      padding: 12px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      text-align: left;
+    }
+    .session-item:hover { background: #f7faff; }
+    .session-item.active { background: var(--blue-soft); box-shadow: inset 3px 0 var(--blue); }
+    .session-title { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+    .session-title span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-time { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+    .session-preview { margin-top: 6px; color: #6b7a8d; font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .chat-panel { min-width: 0; display: flex; flex-direction: column; }
+    .chat-header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .assistant-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .assistant-mark { width: 34px; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: #dcebff; color: var(--blue); font-size: 19px; }
+    .assistant-name strong { font-size: 14px; display: block; }
+    .assistant-name small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .chat-header-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+    .message-list { flex: 1; padding: 18px; overflow: auto; background: #fbfcfe; }
+    .message { display: flex; margin-bottom: 14px; gap: 9px; align-items: flex-start; }
+    .message.user { flex-direction: row-reverse; }
+    .message .avatar { flex: 0 0 28px; }
+    .bubble { max-width: min(78%, 600px); padding: 10px 12px; border-radius: 6px; background: #fff; border: 1px solid var(--line); color: #36475a; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+    .message.user .bubble { background: #e9f2ff; border-color: #c9ddfb; color: #244d80; }
+    .message.system { justify-content: center; }
+    .message.system .bubble { max-width: 92%; padding: 7px 10px; background: #f2f5f8; border-color: #e5eaf0; color: #738197; font-size: 12px; }
+    .message-meta { margin-top: 4px; color: #9aa6b5; font-size: 10px; }
+    .message.user .message-meta { text-align: right; }
+    .quick-actions { display: flex; gap: 7px; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); background: #fff; }
+    .quick-chip { border: 1px solid #cfe0f7; border-radius: 14px; padding: 5px 10px; background: #f5f9ff; color: #3a6ca9; font-size: 12px; }
+    .quick-chip:hover { background: var(--blue-soft); border-color: #9dc2f2; }
+    .composer { padding: 12px 14px; border-top: 1px solid var(--line); background: #fff; }
+    .composer-row { display: flex; align-items: flex-end; gap: 8px; }
+    .composer textarea { min-height: 62px; max-height: 150px; }
+    .composer .primary-button { min-height: 62px; min-width: 70px; }
+    .composer-note { margin-top: 6px; color: #98a4b2; font-size: 11px; }
+    .summary-panel { min-width: 0; }
+    .summary-body { padding: 13px; }
+    .summary-block + .summary-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .summary-label { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+    .summary-title { margin: 0; color: #263b53; font-size: 14px; line-height: 1.5; }
+    .progress { height: 6px; margin: 9px 0 7px; border-radius: 4px; background: #edf0f4; overflow: hidden; }
+    .progress span { display: block; height: 100%; background: var(--blue); border-radius: inherit; }
+    .summary-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+    .rating-box { padding: 10px; border: 1px solid #d9e7fa; background: #f8fbff; border-radius: 5px; }
+    .rating-stars { display: flex; gap: 4px; margin: 8px 0; }
+    .rating-star { width: 28px; height: 28px; border: 1px solid #c9d9ef; border-radius: 4px; background: #fff; color: #9aa7b6; }
+    .rating-star.selected { background: #fff4cc; border-color: #e9c65a; color: #bb7d00; }
+
+    /* Support */
+    .support-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    .segmented { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 5px; background: #f4f6f8; }
+    .segment { border: 0; padding: 6px 10px; border-radius: 3px; background: transparent; color: #68778a; font-size: 12px; }
+    .segment.active { background: #fff; box-shadow: 0 1px 4px rgba(20,46,72,.10); color: var(--blue); font-weight: 600; }
+    .filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .filter-row .text-input { width: 210px; }
+    .support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .queue-panel { min-height: 220px; }
+    .queue-list { padding: 4px 12px 10px; }
+    .queue-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .queue-item:last-child { border-bottom: 0; }
+    .queue-title { color: var(--blue); font-size: 13px; font-weight: 600; line-height: 1.45; }
+    .queue-meta { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .queue-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .queue-actions time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .table-wrap { overflow-x: auto; }
+    .ticket-table { width: 100%; min-width: 1140px; border-collapse: collapse; font-size: 12px; }
+    .ticket-table th, .ticket-table td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .ticket-table th { background: #fafbfd; color: #6e7d90; font-weight: 600; white-space: nowrap; }
+    .ticket-table tr:hover td { background: #fbfdff; }
+    .risk-cell { width: 52px; padding: 0 !important; text-align: center !important; background: #eef8e9; color: #25820f; font-weight: 700; vertical-align: middle !important; }
+    .ticket-no { color: #5e6e82; white-space: nowrap; }
+    .ticket-title { color: var(--blue); font-weight: 600; line-height: 1.55; cursor: pointer; }
+    .ticket-title:hover { text-decoration: underline; }
+    .ticket-subline { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; color: #8a96a5; font-size: 11px; }
+    .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 5px; padding: 10px 12px; color: var(--muted); font-size: 12px; }
+    .page-button { min-width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: #596a7e; }
+    .page-button.active { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .drawer-backdrop { position: fixed; inset: 0; background: rgba(19, 39, 60, .22); z-index: 8; }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(720px, 92vw);
+      z-index: 9;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      box-shadow: -12px 0 30px rgba(18, 43, 67, .16);
+    }
+    .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .drawer-header h2 { margin: 0; font-size: 18px; line-height: 1.4; }
+    .drawer-header p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .drawer-body { flex: 1; overflow: auto; padding: 16px 18px; background: #f8fafc; }
+    .detail-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; }
+    .detail-card { padding: 13px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+    .detail-card h3 { margin: 0 0 10px; font-size: 14px; }
+    .detail-row { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f2f5; font-size: 12px; line-height: 1.5; }
+    .detail-row:last-child { border-bottom: 0; }
+    .detail-row label { color: var(--muted); }
+    .message-mini { padding: 9px 10px; border-left: 3px solid #9bbce8; background: #f4f8fe; color: #4c5d72; font-size: 12px; line-height: 1.55; }
+    .message-mini + .message-mini { margin-top: 8px; }
+    .classification-form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .field label { display: block; margin-bottom: 5px; color: #627187; font-size: 12px; }
+    .field.full { grid-column: 1 / -1; }
+    .drawer-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); background: #fff; }
+    .drawer-footer .action-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* Config */
+    .config-tabs { display: flex; align-items: center; gap: 0; padding: 0 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .config-tab { flex: 0 0 auto; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px 10px; background: transparent; color: #66768a; font-size: 13px; white-space: nowrap; }
+    .config-tab.active { border-bottom-color: var(--blue); color: var(--blue); font-weight: 600; }
+    .config-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; flex-wrap: wrap; }
+    .config-tools-left, .config-tools-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .config-tools .text-input { width: 240px; }
+    .config-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .config-table th, .config-table td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+    .config-table th { background: #fafbfd; color: #6e7d90; font-weight: 600; white-space: nowrap; }
+    .config-table tr:hover td { background: #fbfdff; }
+    .enabled { color: #25820f; }
+    .disabled { color: #9aa6b5; }
+    .empty-state { min-height: 380px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: #8a96a5; }
+    .empty-icon { width: 60px; height: 48px; position: relative; border: 2px solid #dbe2e9; border-radius: 4px 4px 7px 7px; color: #dbe2e9; display: flex; align-items: center; justify-content: center; font-size: 25px; }
+    .empty-icon:before { content: ""; position: absolute; top: -9px; left: 15px; width: 26px; height: 10px; border: 2px solid #dbe2e9; border-bottom: 0; border-radius: 4px 4px 0 0; }
+    .empty-state strong { color: #68788b; font-size: 14px; font-weight: 600; }
+    .empty-state p { margin: 0; font-size: 12px; }
+
+    /* Modal and feedback */
+    .modal-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(19, 39, 60, .28); z-index: 12; }
+    .modal { width: min(470px, 100%); border-radius: 6px; background: #fff; box-shadow: var(--shadow); }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+    .modal-header h2 { margin: 0; font-size: 16px; }
+    .modal-body { padding: 16px 18px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+    .form-stack { display: grid; gap: 12px; }
+    .toast-region { position: fixed; right: 18px; top: 74px; z-index: 20; display: grid; gap: 8px; width: min(360px, calc(100vw - 36px)); }
+    .toast { padding: 10px 12px; border: 1px solid #cfe0f7; border-left: 3px solid var(--blue); border-radius: 5px; background: #fff; box-shadow: var(--shadow); color: #4d6076; font-size: 12px; line-height: 1.5; }
+    .toast strong { display: block; color: #253c56; font-size: 13px; }
+    .toast.error { border-color: #f0c8ca; border-left-color: var(--red); }
+    .toast.success { border-color: #cde7c7; border-left-color: var(--green); }
+    .toast.warning { border-color: #f0dfad; border-left-color: var(--amber); }
+
+    @media (min-width: 1180px) {
+      .sidebar:hover { width: 168px; flex-basis: 168px; }
+      .sidebar:hover .brand { justify-content: flex-start; padding-left: 20px; }
+      .sidebar:hover .brand-name { display: inline; }
+      .sidebar:hover .nav-button { flex-direction: row; justify-content: flex-start; padding-left: 20px; gap: 12px; }
+    }
+    @media (max-width: 1120px) {
+      .assistant-layout { grid-template-columns: 190px minmax(350px, 1fr); }
+      .summary-panel { grid-column: 1 / -1; min-height: auto; }
+      .summary-panel .summary-body { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .summary-panel .summary-block + .summary-block { margin-top: 0; padding-top: 0; border-top: 0; }
+      .summary-panel .summary-block:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 820px) {
+      .workspace { padding: 12px; }
+      .topbar { padding: 0 12px; }
+      .top-actions .top-extra { display: none; }
+      .support-grid, .detail-grid { grid-template-columns: 1fr; }
+      .assistant-layout { grid-template-columns: 1fr; min-height: auto; }
+      .session-list { max-height: 220px; }
+      .chat-panel { min-height: 620px; }
+      .summary-panel .summary-body { display: block; }
+      .summary-panel .summary-block + .summary-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+      .page-heading { flex-direction: column; }
+      .heading-actions { justify-content: flex-start; }
+    }
+    @media (max-width: 560px) {
+      .demo-strip { padding: 0 10px; }
+      .demo-strip span:last-child { display: none; }
+      .sidebar { width: 54px; flex-basis: 54px; }
+      .nav-button { min-height: 62px; }
+      .nav-icon { font-size: 18px; }
+      .topbar { height: 44px; }
+      .breadcrumbs { font-size: 12px; }
+      .user-chip span { display: none; }
+      .workspace { padding: 9px; }
+      .page-heading h1 { font-size: 19px; }
+      .support-toolbar, .config-tools { align-items: stretch; }
+      .filter-row, .config-tools-left, .config-tools-right { width: 100%; }
+      .filter-row .text-input, .config-tools .text-input { width: 100%; flex: 1; }
+      .classification-form { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .drawer { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-strip">
+    <span><strong>ITSM 一期静态 UI 原型</strong>　本地 Mock · 不调用真实后端</span>
+    <span>状态与错误提示遵循正式接口文档 v1.0</span>
+  </div>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand"><span>IT</span><span class="brand-name">ITSM</span></div>
+      <nav class="nav-list">
+        <button class="nav-button active" data-view="user" title="我的助手"><span class="nav-icon">⌂</span><span>我的助手</span></button>
+        <button class="nav-button" data-view="support" title="客服工单"><span class="nav-icon">▣</span><span>客服工单</span></button>
+        <button class="nav-button" data-view="config" title="管理员配置"><span class="nav-icon">⚙</span><span>配置</span></button>
+      </nav>
+    </aside>
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="top-actions">
+          <button class="icon-button top-extra" title="刷新本地 Mock" data-action="refresh">↻</button>
+          <div class="user-chip"><span class="avatar">陈</span><span>陈子昂 · SUPPORT_ADMIN</span></div>
+          <button class="icon-button" title="更多">⋯</button>
+        </div>
+      </header>
+      <nav class="tabbar">
+        <button class="tab active" data-view="user">我的助手</button>
+        <button class="tab" data-view="support">客服工单</button>
+        <button class="tab" data-view="config">配置</button>
+      </nav>
+      <section class="workspace" id="viewRoot"></section>
+    </main>
+  </div>
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+  <div id="overlayRoot"></div>
+
+  <script>
+    "use strict";
+
+    const STATUS = {
+      PENDING_ACCEPTANCE: { label: "待受理", className: "status-PENDING_ACCEPTANCE" },
+      IN_PROGRESS: { label: "处理中", className: "status-IN_PROGRESS" },
+      PENDING_USER_CONFIRM: { label: "待用户确认", className: "status-PENDING_USER_CONFIRM" },
+      RESOLVED: { label: "已解决", className: "status-RESOLVED" },
+      CLOSED: { label: "已关闭", className: "status-CLOSED" },
+      REOPENED: { label: "已重开", className: "status-REOPENED" }
+    };
+    const DICT_TABS = [
+      ["BUSINESS_LINE", "业务系统"],
+      ["MANAGEMENT_UNIT", "管理单元"],
+      ["SYMPTOM", "症状"],
+      ["REASON", "原因"],
+      ["SOLUTION_METHOD", "解决方法"]
+    ];
+    const mock = {
+      session: {
+        sessionId: "ses_01J8V9X6Q7",
+        status: "ACTIVE",
+        title: "办公系统登录问题",
+        ticketId: "tkt_01J8V9X8AB"
+      },
+      sessions: [
+        { id: "ses_01J8V9X6Q7", title: "办公系统登录问题", preview: "已提供错误截图，等待继续处理", time: "16:18", active: true },
+        { id: "ses_01J8V9Y3M2", title: "导出 XMS 物料价格报表", preview: "服务请求已关闭，可提交评价", time: "昨日", active: false },
+        { id: "ses_01J8V9Z1K4", title: "海外系统权限咨询", preview: "历史会话 · 4 条消息", time: "08-22", active: false }
+      ],
+      messages: [
+        { from: "system", text: "会话已创建 · 当前会话状态 ACTIVE", time: "16:14" },
+        { from: "assistant", text: "你好，我是 ITSM 智能助手。请描述你遇到的问题，我会先帮你排查。", time: "16:14" },
+        { from: "user", text: "进入办公系统后提示账号无权限，页面打不开。", time: "16:15" },
+        { from: "assistant", text: "我已记录问题：办公系统登录后提示账号无权限。你可以补充页面截图，或直接转人工让客服继续处理。", time: "16:16" }
+      ],
+      tickets: [
+        {
+          ticketId: "tkt_01J8V9X8AB", ticketNo: "3053001", title: "办公系统无法登录",
+          description: "进入办公系统后提示账号无权限，页面打不开。",
+          status: "PENDING_ACCEPTANCE", priority: "MEDIUM", businessLineCode: "IT_SUPPORT",
+          requester: { displayName: "张三", departmentName: "技术支持部" },
+          assignee: null, updatedAt: "2026-08-25 16:18", risk: "2%",
+          classification: { managementUnitId: "dict_unit_account", symptomId: "dict_symptom_login_failed", reasonId: null, solutionMethodId: null, customReason: null, customSolution: null },
+          conversation: { sessionId: "ses_01J8V9X6Q7", summary: "用户无法登录办公系统，已提供错误截图", messageCount: 4 },
+          history: ["16:18　工单进入客服队列 · TicketRouted", "16:16　用户请求人工 · HandoffRequested"],
+          source: "AGENT_HANDOFF"
+        },
+        {
+          ticketId: "tkt_01J8V9X8AC", ticketNo: "3052989", title: "寻求人工服务",
+          description: "用户需要人工客服协助处理办公系统问题。",
+          status: "IN_PROGRESS", priority: "LOW", businessLineCode: "IT_SUPPORT",
+          requester: { displayName: "陈梓健", departmentName: "运营部" },
+          assignee: { displayName: "周杰" }, updatedAt: "2026-08-25 16:09", risk: "1%",
+          classification: { managementUnitId: "dict_unit_account", symptomId: "dict_symptom_login_failed", reasonId: "dict_reason_permission", solutionMethodId: null, customReason: null, customSolution: null },
+          conversation: { sessionId: "ses_01J8V9W4P3", summary: "用户申请人工处理，客服已受理", messageCount: 7 },
+          history: ["16:09　客服周杰受理 · TicketAccepted", "16:05　工单进入客服队列 · TicketRouted"],
+          source: "USER_HANDOFF"
+        },
+        {
+          ticketId: "tkt_01J8V9X8AD", ticketNo: "3052992", title: "订单退款成功但无法确认",
+          description: "订单退款已成功，但业务页面仍显示待确认。",
+          status: "PENDING_USER_CONFIRM", priority: "HIGH", businessLineCode: "SALES_SERVICE",
+          requester: { displayName: "俞雪", departmentName: "国内销售部" },
+          assignee: { displayName: "周森" }, updatedAt: "2026-08-25 15:44", risk: "3%",
+          classification: { managementUnitId: "dict_unit_order", symptomId: "dict_symptom_status_delay", reasonId: "dict_reason_sync_delay", solutionMethodId: "dict_solution_refresh", customReason: null, customSolution: null },
+          conversation: { sessionId: "ses_01J8V9V2Q1", summary: "客服已提交解决说明，等待用户确认", messageCount: 8 },
+          history: ["15:44　提交解决结果 · TicketResolutionSubmitted", "15:21　客服周森受理 · TicketAccepted"],
+          source: "MANUAL"
+        },
+        {
+          ticketId: "tkt_01J8V9X8AE", ticketNo: "3052985", title: "欧洲区域销售数据导出咨询",
+          description: "需要导出指定区域的销售数据并确认报表范围。",
+          status: "RESOLVED", priority: "MEDIUM", businessLineCode: "DATA_SERVICE",
+          requester: { displayName: "周森", departmentName: "国际业务部" },
+          assignee: { displayName: "客服一" }, updatedAt: "2026-08-25 14:20", risk: "0%",
+          classification: { managementUnitId: "dict_unit_report", symptomId: "dict_symptom_export", reasonId: "dict_reason_scope", solutionMethodId: "dict_solution_export", customReason: null, customSolution: null },
+          conversation: { sessionId: "ses_01J8V9U8K1", summary: "已完成数据范围确认并提供导出方法", messageCount: 6 },
+          history: ["14:20　用户确认解决 · TicketUserConfirmed", "14:16　提交解决结果 · TicketResolutionSubmitted"],
+          source: "MANUAL"
+        }
+      ],
+      dicts: {
+        BUSINESS_LINE: [
+          { itemId: "dict_bl_it", code: "IT_SUPPORT", name: "技术支持", parentId: null, enabled: true, sort: 10, version: 3 },
+          { itemId: "dict_bl_sales", code: "SALES_SERVICE", name: "销售服务", parentId: null, enabled: true, sort: 20, version: 2 },
+          { itemId: "dict_bl_data", code: "DATA_SERVICE", name: "数据服务", parentId: null, enabled: false, sort: 30, version: 1 }
+        ],
+        MANAGEMENT_UNIT: [
+          { itemId: "dict_unit_account", code: "ACCOUNT", name: "账号与权限", parentId: null, enabled: true, sort: 10, version: 2 },
+          { itemId: "dict_unit_order", code: "ORDER", name: "订单与退款", parentId: null, enabled: true, sort: 20, version: 2 },
+          { itemId: "dict_unit_report", code: "REPORT", name: "报表与数据", parentId: null, enabled: true, sort: 30, version: 1 }
+        ],
+        SYMPTOM: [
+          { itemId: "dict_symptom_login_failed", code: "LOGIN_FAILED", name: "登录失败", parentId: "dict_unit_account", enabled: true, sort: 10, version: 1 },
+          { itemId: "dict_symptom_status_delay", code: "STATUS_DELAY", name: "状态更新延迟", parentId: "dict_unit_order", enabled: true, sort: 20, version: 1 },
+          { itemId: "dict_symptom_export", code: "EXPORT_HELP", name: "导出咨询", parentId: "dict_unit_report", enabled: true, sort: 30, version: 1 }
+        ],
+        REASON: [
+          { itemId: "dict_reason_permission", code: "PERMISSION_MISSING", name: "权限缺失", parentId: "dict_unit_account", enabled: true, sort: 10, version: 3 },
+          { itemId: "dict_reason_sync_delay", code: "SYNC_DELAY", name: "数据同步延迟", parentId: "dict_unit_order", enabled: true, sort: 20, version: 1 },
+          { itemId: "dict_reason_scope", code: "SCOPE_UNCLEAR", name: "报表范围不清晰", parentId: "dict_unit_report", enabled: true, sort: 30, version: 1 }
+        ],
+        SOLUTION_METHOD: [
+          { itemId: "dict_solution_reset_permission", code: "RESET_PERMISSION", name: "补充账号权限", parentId: "dict_unit_account", enabled: true, sort: 10, version: 1 },
+          { itemId: "dict_solution_refresh", code: "REFRESH_STATUS", name: "刷新业务状态", parentId: "dict_unit_order", enabled: true, sort: 20, version: 1 },
+          { itemId: "dict_solution_export", code: "EXPORT_GUIDE", name: "提供导出指引", parentId: "dict_unit_report", enabled: true, sort: 30, version: 1 }
+        ]
+      }
+    };
+    const state = {
+      view: "user",
+      supportView: "home",
+      activeSessionId: "ses_01J8V9X6Q7",
+      ticketView: "PENDING",
+      selectedTicketId: null,
+      drawerOpen: false,
+      activeDict: "BUSINESS_LINE",
+      dictKeyword: "",
+      ratingOpen: false,
+      ratingScore: 0
+    };
+
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    const getTicket = (id) => mock.tickets.find((ticket) => ticket.ticketId === id);
+    const statusTag = (status) => {
+      const meta = STATUS[status] || { label: status, className: "" };
+      return `<span class="status-tag ${meta.className}">${esc(meta.label)}</span>`;
+    };
+    const priorityTag = (priority) => `<span class="priority-tag priority-${esc(priority)}">${priority === "HIGH" ? "高" : priority === "MEDIUM" ? "中" : "低"}优先级</span>`;
+    const showToast = (title, message, type = "success") => {
+      const region = document.getElementById("toastRegion");
+      const toast = document.createElement("div");
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<strong>${esc(title)}</strong><span>${esc(message)}</span>`;
+      region.appendChild(toast);
+      window.setTimeout(() => toast.remove(), 3600);
+    };
+
+    function render() {
+      document.querySelectorAll("[data-view]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === state.view);
+      });
+      const names = { user: ["首页", "我的助手"], support: ["工单", state.supportView === "home" ? "个人工作台" : "服务请求"], config: ["配置", "管理单元", DICT_TABS.find(([key]) => key === state.activeDict)?.[1] || "业务系统"] };
+      const crumbs = names[state.view];
+      document.getElementById("breadcrumbs").innerHTML = crumbs.map((item, index) => index === crumbs.length - 1 ? `<strong>${esc(item)}</strong>` : `<span>${esc(item)}</span><span class="crumb-sep">›</span>`).join("");
+      const root = document.getElementById("viewRoot");
+      root.innerHTML = state.view === "user" ? renderUser() : state.view === "support" ? renderSupport() : renderConfig();
+      if (state.drawerOpen && state.selectedTicketId) renderDrawer();
+      else document.getElementById("overlayRoot").innerHTML = "";
+    }
+
+    function renderUser() {
+      const session = mock.sessions.find((item) => item.id === state.activeSessionId) || mock.sessions[0];
+      const ticket = getTicket(mock.session.ticketId);
+      return `
+        <div class="page-heading">
+          <div><h1>我的助手</h1><p>以聊天方式描述问题，保留会话上下文并跟进服务请求。</p></div>
+          <div class="heading-actions"><span class="contract-tag">Mock SESSION / CHAT / TICKET / RATING</span><button class="primary-button" data-action="new-session">新建会话</button></div>
+        </div>
+        <div class="assistant-layout">
+          <section class="panel session-list">
+            <div class="panel-header"><h2>会话列表</h2><small>${mock.sessions.length} 个会话</small></div>
+            <div class="session-search"><input class="text-input" placeholder="搜索会话" aria-label="搜索会话"></div>
+            <div class="session-items">
+              ${mock.sessions.map((item) => `
+                <button class="session-item ${item.id === session.id ? "active" : ""}" data-action="select-session" data-id="${esc(item.id)}">
+                  <div class="session-title"><span>${esc(item.title)}</span><span class="session-time">${esc(item.time)}</span></div>
+                  <div class="session-preview">${esc(item.preview)}</div>
+                </button>`).join("")}
+            </div>
+          </section>
+          <section class="panel chat-panel">
+            <div class="chat-header">
+              <div class="assistant-name"><span class="assistant-mark">◇</span><div><strong>ITSM 智能助手</strong><small>当前会话 ${esc(mock.session.sessionId)} · ${esc(mock.session.status)}</small></div></div>
+              <div class="chat-header-actions">${statusTag(ticket.status)}<button class="icon-button" title="会话更多">⋯</button></div>
+            </div>
+            <div class="message-list">
+              ${mock.messages.map((message) => `
+                <div class="message ${esc(message.from)}">
+                  ${message.from !== "system" ? `<span class="avatar">${message.from === "user" ? "我" : "助"}</span>` : ""}
+                  <div><div class="bubble">${esc(message.text)}</div><div class="message-meta">${esc(message.time)}</div></div>
+                </div>`).join("")}
+            </div>
+            <div class="quick-actions">
+              <button class="quick-chip" data-action="suggestion" data-text="我想补充截图和问题发生时间">补充问题信息</button>
+              <button class="quick-chip" data-action="suggestion" data-text="请帮我转人工客服继续处理">转人工处理</button>
+              <button class="quick-chip" data-action="suggestion" data-text="请告诉我当前服务请求的处理进度">查看处理进度</button>
+            </div>
+            <form class="composer" id="chatForm">
+              <div class="composer-row"><textarea class="textarea-input" name="message" placeholder="描述你的问题，Enter 发送；Shift+Enter 换行" aria-label="消息输入"></textarea><button class="primary-button" type="submit">发送</button></div>
+              <div class="composer-note">本地 Mock：发送后只更新当前页面，不产生真实消息或接口请求。</div>
+            </form>
+          </section>
+          <aside class="panel summary-panel">
+            <div class="panel-header"><h2>关联服务请求</h2><small>ITSM-TICKET-003</small></div>
+            <div class="summary-body">
+              <div class="summary-block"><div class="summary-label">工单编号</div><p class="summary-title">${esc(ticket.ticketNo)} · ${esc(ticket.title)}</p><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${statusTag(ticket.status)}${priorityTag(ticket.priority)}</div></div>
+              <div class="summary-block"><div class="summary-label">处理进度</div><div class="progress"><span style="width:${ticket.status === "PENDING_ACCEPTANCE" ? "30%" : ticket.status === "IN_PROGRESS" ? "58%" : ticket.status === "PENDING_USER_CONFIRM" ? "82%" : "100%"}"></span></div><div class="muted" style="font-size:12px">${esc(ticket.conversation.summary)}</div></div>
+              <div class="summary-block"><div class="summary-label">可用操作</div><div class="summary-actions">${ticket.status === "PENDING_USER_CONFIRM" ? `<button class="primary-button" data-action="confirm-ticket" data-id="${esc(ticket.ticketId)}">确认解决</button><button class="ghost-button" data-action="reopen-ticket" data-id="${esc(ticket.ticketId)}">未解决，重开</button>` : ""}${(ticket.status === "RESOLVED" || ticket.status === "CLOSED") ? `<button class="primary-button" data-action="open-rating" data-id="${esc(ticket.ticketId)}">评价服务</button>` : ""}<button class="ghost-button" data-action="handoff">转人工</button></div></div>
+              ${state.ratingOpen ? `<div class="summary-block"><div class="rating-box"><div class="summary-label">评价工单 · 仅支持 1-5 分</div><div class="rating-stars">${[1,2,3,4,5].map((score) => `<button type="button" class="rating-star ${state.ratingScore >= score ? "selected" : ""}" data-action="set-rating" data-score="${score}">${score}</button>`).join("")}</div><textarea class="textarea-input" id="ratingComment" placeholder="补充说明（可选）"></textarea><div style="margin-top:8px;text-align:right"><button class="primary-button" data-action="submit-rating" data-id="${esc(ticket.ticketId)}">提交评价</button></div></div></div>` : ""}
+            </div>
+          </aside>
+        </div>`;
+    }
+
+    function queueCard(title, statuses, actionLabel) {
+      const tickets = mock.tickets.filter((ticket) => statuses.includes(ticket.status)).slice(0, 3);
+      return `<section class="panel queue-panel"><div class="panel-header"><h2>${esc(title)}</h2><small>${tickets.length} 条</small></div><div class="queue-list">${tickets.length ? tickets.map((ticket) => `<div class="queue-item"><div><button class="link-button queue-title" data-action="open-ticket" data-id="${esc(ticket.ticketId)}">${esc(ticket.title)}</button><div class="queue-meta">${esc(ticket.ticketNo)}　${esc(ticket.requester.displayName)} · ${esc(ticket.businessLineCode)}</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${statusTag(ticket.status)}${priorityTag(ticket.priority)}</div></div><div class="queue-actions"><time>${esc(ticket.updatedAt.slice(11))}</time>${actionLabel && (ticket.status === "PENDING_ACCEPTANCE" || ticket.status === "REOPENED") ? `<button class="small-button" data-action="accept-ticket" data-id="${esc(ticket.ticketId)}">受理</button>` : `<button class="small-button" data-action="open-ticket" data-id="${esc(ticket.ticketId)}">查看</button>`}</div></div>`).join("") : `<div class="empty-state" style="min-height:150px"><div class="empty-icon">·</div><strong>暂无数据</strong><p>当前筛选范围没有服务请求</p></div>`}</div></section>`;
+    }
+
+    function renderSupport() {
+      const views = [["home", "个人工作台"], ["list", "服务请求"]];
+      return `
+        <div class="page-heading">
+          <div><h1>${state.supportView === "home" ? "个人工作台" : "服务请求"}</h1><p>依据角色与数据范围展示客服可处理的工单；当前角色 SUPPORT_ADMIN。</p></div>
+          <div class="heading-actions"><span class="contract-tag">Mock SUPPORT / TICKET</span><button class="ghost-button" data-action="refresh">↻ 刷新</button></div>
+        </div>
+        <section class="panel">
+          <div class="support-toolbar">
+            <div class="segmented">${views.map(([key, label]) => `<button class="segment ${state.supportView === key ? "active" : ""}" data-action="support-view" data-value="${key}">${label}</button>`).join("")}</div>
+            <div class="filter-row">${state.supportView === "list" ? `<select class="select-input" style="width:132px" id="ticketViewSelect"><option value="PENDING" ${state.ticketView === "PENDING" ? "selected" : ""}>待受理</option><option value="IN_PROGRESS" ${state.ticketView === "IN_PROGRESS" ? "selected" : ""}>处理中</option><option value="PENDING_CONFIRM" ${state.ticketView === "PENDING_CONFIRM" ? "selected" : ""}>待确认</option><option value="HISTORY" ${state.ticketView === "HISTORY" ? "selected" : ""}>历史</option></select><input class="text-input" id="ticketKeyword" placeholder="工单号、标题、请求人" value="${esc(state.ticketKeyword || "")}"><button class="primary-button" data-action="apply-ticket-filter">查询</button>` : `<button class="primary-button" data-action="new-ticket">新建工单</button>`}</div>
+          </div>
+          ${state.supportView === "home" ? `<div class="support-grid" style="padding:14px">${queueCard("草稿箱", ["IN_PROGRESS"], false)}${queueCard("等待我处理的服务请求", ["PENDING_ACCEPTANCE", "REOPENED"], true)}${queueCard("即将超时的服务请求", ["PENDING_ACCEPTANCE"], true)}${queueCard("待本岗位处理的服务请求", ["PENDING_ACCEPTANCE", "IN_PROGRESS"], false)}</div>` : renderTicketTable()}
+        </section>`;
+    }
+
+    function renderTicketTable() {
+      const keyword = (state.ticketKeyword || "").trim().toLowerCase();
+      const statusMap = { PENDING: ["PENDING_ACCEPTANCE", "REOPENED"], IN_PROGRESS: ["IN_PROGRESS"], PENDING_CONFIRM: ["PENDING_USER_CONFIRM"], HISTORY: ["RESOLVED", "CLOSED"] };
+      const items = mock.tickets.filter((ticket) => statusMap[state.ticketView].includes(ticket.status)).filter((ticket) => !keyword || [ticket.ticketNo, ticket.title, ticket.requester.displayName].join(" ").toLowerCase().includes(keyword));
+      return `<div class="table-wrap"><table class="ticket-table"><thead><tr><th style="width:52px">风险</th><th style="width:42px">选择</th><th>编号</th><th style="min-width:360px">标题</th><th>业务系统</th><th>状态</th><th>提交人</th><th>责任角色/责任人</th><th>更新时间</th><th>操作</th></tr></thead><tbody>${items.length ? items.map((ticket) => `<tr><td class="risk-cell">${esc(ticket.risk)}</td><td><input type="checkbox" aria-label="选择 ${esc(ticket.ticketNo)}"></td><td class="ticket-no">${esc(ticket.ticketNo)}</td><td><button class="link-button ticket-title" data-action="open-ticket" data-id="${esc(ticket.ticketId)}">${esc(ticket.title)}</button><div class="ticket-subline"><span class="mini-badge">${esc(ticket.source)}</span><span>${esc(ticket.description)}</span></div></td><td>${esc(ticket.businessLineCode)}</td><td>${statusTag(ticket.status)}</td><td>${esc(ticket.requester.displayName)}</td><td>${ticket.assignee ? `服务台<br>${esc(ticket.assignee.displayName)}` : "服务台<br><span class='muted'>待分配</span>"}</td><td>${esc(ticket.updatedAt)}</td><td>${ticket.status === "PENDING_ACCEPTANCE" || ticket.status === "REOPENED" ? `<button class="small-button" data-action="accept-ticket" data-id="${esc(ticket.ticketId)}">受理</button>` : `<button class="small-button" data-action="open-ticket" data-id="${esc(ticket.ticketId)}">详情</button>`}</td></tr>`).join("") : `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">·</div><strong>暂无数据</strong><p>请清空筛选或切换服务请求视图</p></div></td></tr>`}</tbody></table></div><div class="pagination"><span>共 ${items.length} 条</span><button class="page-button" disabled>‹</button><button class="page-button active">1</button><button class="page-button" disabled>›</button></div>`;
+    }
+
+    function renderConfig() {
+      const items = (mock.dicts[state.activeDict] || []).filter((item) => !state.dictKeyword || [item.code, item.name].join(" ").toLowerCase().includes(state.dictKeyword.toLowerCase()));
+      return `
+        <div class="page-heading"><div><h1>管理员配置</h1><p>维护一期字典项；停用为软停用，历史工单仍可读取名称。</p></div><div class="heading-actions"><span class="contract-tag">Mock DICT-001/002/003/004</span><button class="primary-button" data-action="open-add-dict">新增字典项</button></div></div>
+        <section class="panel">
+          <div class="config-tabs">${DICT_TABS.map(([key, label]) => `<button class="config-tab ${state.activeDict === key ? "active" : ""}" data-action="dict-tab" data-value="${key}">${label}</button>`).join("")}</div>
+          <div class="config-tools"><div class="config-tools-left"><strong>${esc(DICT_TABS.find(([key]) => key === state.activeDict)?.[1] || "")}</strong><span class="muted">共 ${items.length} 条</span><select class="select-input" style="width:106px"><option>20条/页</option></select></div><div class="config-tools-right"><input class="text-input" id="dictKeyword" placeholder="编码或名称" value="${esc(state.dictKeyword)}"><button class="ghost-button" data-action="apply-dict-filter">搜索</button><button class="ghost-button" data-action="config-empty">查看空状态</button></div></div>
+          ${items.length ? `<div class="table-wrap"><table class="config-table"><thead><tr><th style="width:46px">选择</th><th>编码</th><th>名称</th><th>父级 ID</th><th>状态</th><th>排序</th><th>版本</th><th style="width:150px">操作</th></tr></thead><tbody>${items.map((item) => `<tr><td><input type="checkbox" aria-label="选择 ${esc(item.name)}"></td><td><code>${esc(item.code)}</code></td><td><strong>${esc(item.name)}</strong></td><td class="muted">${esc(item.parentId || "—")}</td><td class="${item.enabled ? "enabled" : "disabled"}">${item.enabled ? "启用" : "已停用"}</td><td>${esc(item.sort)}</td><td>v${esc(item.version)}</td><td>${item.enabled ? `<button class="small-button" data-action="disable-dict" data-id="${esc(item.itemId)}">停用</button>` : `<span class="muted">不可用</span>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty-state"><div class="empty-icon">·</div><strong>暂无数据</strong><p>当前字典类型或搜索条件没有可展示的字典项</p><button class="ghost-button" data-action="clear-dict-filter">清空筛选</button></div>`}
+        </section>`;
+    }
+
+    function renderDrawer() {
+      const ticket = getTicket(state.selectedTicketId);
+      const canClassify = ticket.status === "IN_PROGRESS" || ticket.status === "REOPENED";
+      const canResolve = ticket.status === "IN_PROGRESS";
+      const canClose = ticket.status === "RESOLVED";
+      document.getElementById("overlayRoot").innerHTML = `
+        <div class="drawer-backdrop" data-action="close-drawer"></div>
+        <aside class="drawer" aria-label="工单详情">
+          <div class="drawer-header"><div><h2>${esc(ticket.title)}</h2><p>${esc(ticket.ticketNo)} · ${esc(ticket.businessLineCode)} · 来源 ${esc(ticket.source)}</p><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${statusTag(ticket.status)}${priorityTag(ticket.priority)}</div></div><button class="icon-button" title="关闭详情" data-action="close-drawer">×</button></div>
+          <div class="drawer-body">
+            <div class="detail-grid">
+              <div class="detail-card"><h3>请求摘要</h3><div class="detail-row"><label>请求人</label><div>${esc(ticket.requester.displayName)} · ${esc(ticket.requester.departmentName)}</div></div><div class="detail-row"><label>描述</label><div>${esc(ticket.description)}</div></div><div class="detail-row"><label>会话摘要</label><div>${esc(ticket.conversation.summary)}（${ticket.conversation.messageCount} 条消息）</div></div><div class="detail-row"><label>更新时间</label><div>${esc(ticket.updatedAt)}</div></div></div>
+              <div class="detail-card"><h3>处理时间线</h3>${ticket.history.map((item) => `<div class="message-mini">${esc(item)}</div>`).join("")}</div>
+            </div>
+            <div class="detail-card" style="margin-top:12px"><h3>分类与处理</h3>${canClassify ? `<div class="classification-form"><div class="field"><label>管理单元 · managementUnitId</label><select class="select-input"><option>账号与权限</option><option>订单与退款</option><option>报表与数据</option></select></div><div class="field"><label>症状 · symptomId</label><select class="select-input"><option>登录失败</option><option>状态更新延迟</option><option>导出咨询</option></select></div><div class="field"><label>原因 · reasonId</label><select class="select-input"><option>权限缺失</option><option>数据同步延迟</option><option>报表范围不清晰</option></select></div><div class="field"><label>解决方法 · solutionMethodId</label><select class="select-input"><option>补充账号权限</option><option>刷新业务状态</option><option>提供导出指引</option></select></div><div class="field full"><label>自定义解决 · customSolution</label><textarea class="textarea-input" placeholder="可选；solutionMethodId 和 customSolution 至少填写一个"></textarea></div></div>` : `<div class="muted" style="font-size:12px">当前状态 ${esc(ticket.status)} 不允许编辑分类字段。按钮可用性由服务端 status 与权限共同决定。</div>`}</div>
+            <div class="detail-card" style="margin-top:12px"><h3>聊天上下文</h3><div class="message-mini">用户：${esc(ticket.description)}</div><div class="message-mini">系统：保留会话 ${esc(ticket.conversation.sessionId)}，当前为本地展示数据。</div></div>
+          </div>
+          <div class="drawer-footer"><span class="muted">错误反馈示例：ILLEGAL_STATE_TRANSITION / RESOURCE_CONFLICT</span><div class="action-group">${ticket.status === "PENDING_ACCEPTANCE" || ticket.status === "REOPENED" ? `<button class="primary-button" data-action="accept-ticket" data-id="${esc(ticket.ticketId)}">受理工单</button>` : ""}${canClassify ? `<button class="ghost-button" data-action="save-classification" data-id="${esc(ticket.ticketId)}">保存分类</button>` : ""}${canResolve ? `<button class="primary-button" data-action="resolve-ticket" data-id="${esc(ticket.ticketId)}">提交解决</button>` : ""}${canClose ? `<button class="danger-button" data-action="close-ticket" data-id="${esc(ticket.ticketId)}">关闭工单</button>` : ""}</div></div>
+        </aside>`;
+    }
+
+    function updateTicketStatus(id, nextStatus, successMessage) {
+      const ticket = getTicket(id);
+      const allowed = {
+        PENDING_ACCEPTANCE: ["IN_PROGRESS"],
+        REOPENED: ["IN_PROGRESS"],
+        IN_PROGRESS: ["PENDING_USER_CONFIRM"],
+        PENDING_USER_CONFIRM: ["RESOLVED"],
+        RESOLVED: ["CLOSED"]
+      };
+      if (!ticket || !allowed[ticket.status]?.includes(nextStatus)) {
+        showToast("操作未执行", "ILLEGAL_STATE_TRANSITION · 当前工单状态不允许执行该操作", "error");
+        return false;
+      }
+      ticket.status = nextStatus;
+      ticket.updatedAt = "2026-08-25 16:32";
+      if (nextStatus === "IN_PROGRESS") ticket.assignee = { displayName: "陈子昂" };
+      ticket.history.unshift(`16:32　${successMessage}`);
+      showToast("Mock 操作成功", `${successMessage} · code=SUCCESS`, "success");
+      return true;
+    }
+
+    document.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-action]");
+      if (!target) return;
+      const action = target.dataset.action;
+      if (action === "refresh") { render(); showToast("已刷新本地 Mock", "未调用真实后端接口", "success"); }
+      if (action === "select-session") { state.activeSessionId = target.dataset.id; render(); }
+      if (action === "suggestion") { const input = document.querySelector('[name="message"]'); if (input) { input.value = target.dataset.text; input.focus(); } }
+      if (action === "new-session") { mock.session.status = "ACTIVE"; mock.messages = [{ from: "system", text: "新会话已创建 · 会话状态 ACTIVE", time: "现在" }, { from: "assistant", text: "你好，请描述你遇到的问题。", time: "现在" }]; showToast("会话已创建", "本地 Mock 仅更新页面状态 · code=SUCCESS", "success"); render(); }
+      if (action === "handoff") {
+        if (mock.session.status !== "ACTIVE") { showToast("无法转人工", "ILLEGAL_STATE_TRANSITION · 当前会话不允许重复转人工", "error"); return; }
+        mock.session.status = "HANDOFF_PENDING";
+        mock.messages.push({ from: "system", text: "已提交转人工请求，正在创建/分派服务请求 · HANDOFF_PENDING", time: "现在" });
+        const ticket = getTicket(mock.session.ticketId);
+        if (ticket) ticket.status = "PENDING_ACCEPTANCE";
+        showToast("转人工请求已提交", "本地 Mock：保留会话上下文并展示待受理工单 · code=SUCCESS", "success");
+        render();
+      }
+      if (action === "open-rating") { state.ratingOpen = true; state.ratingScore = 0; render(); }
+      if (action === "set-rating") { state.ratingScore = Number(target.dataset.score); render(); }
+      if (action === "submit-rating") {
+        if (state.ratingScore < 1 || state.ratingScore > 5) { showToast("评价未提交", "VALIDATION_ERROR · score 必须为 1-5", "error"); return; }
+        const ticket = getTicket(target.dataset.id);
+        ticket.rating = { score: state.ratingScore, comment: document.getElementById("ratingComment")?.value || "" };
+        state.ratingOpen = false;
+        showToast("评价已提交", "本地 Mock：已记录 rating score · code=SUCCESS", "success");
+        render();
+      }
+      if (action === "support-view") { state.supportView = target.dataset.value; render(); }
+      if (action === "open-ticket") { state.selectedTicketId = target.dataset.id; state.drawerOpen = true; render(); }
+      if (action === "close-drawer") { state.drawerOpen = false; state.selectedTicketId = null; render(); }
+      if (action === "accept-ticket") { if (updateTicketStatus(target.dataset.id, "IN_PROGRESS", "客服受理 · TicketAccepted")) { render(); } }
+      if (action === "resolve-ticket") { if (updateTicketStatus(target.dataset.id, "PENDING_USER_CONFIRM", "提交解决结果 · TicketResolutionSubmitted")) { render(); } }
+      if (action === "close-ticket") { if (updateTicketStatus(target.dataset.id, "CLOSED", "客服关闭 · TicketClosed")) { render(); } }
+      if (action === "confirm-ticket") { if (updateTicketStatus(target.dataset.id, "RESOLVED", "用户确认解决 · TicketUserConfirmed")) { render(); } }
+      if (action === "reopen-ticket") {
+        const ticket = getTicket(target.dataset.id);
+        if (!ticket || !["PENDING_USER_CONFIRM", "RESOLVED", "CLOSED"].includes(ticket.status)) { showToast("无法重开", "ILLEGAL_STATE_TRANSITION · 当前工单状态不允许重开", "error"); return; }
+        ticket.status = "REOPENED"; ticket.history.unshift("现在　用户重开工单 · TicketReopened"); showToast("工单已重开", "下一步等待客服受理 · code=SUCCESS", "success"); render();
+      }
+      if (action === "save-classification") { showToast("分类已保存", "本地 Mock：对应 ITSM-SUPPORT-003 · code=SUCCESS", "success"); }
+      if (action === "new-ticket") { showToast("原型提示", "一期接口文档未要求此处模拟真实建单，当前仅保留入口视觉。", "warning"); }
+      if (action === "apply-ticket-filter") { state.ticketKeyword = document.getElementById("ticketKeyword")?.value || ""; render(); }
+      if (action === "dict-tab") { state.activeDict = target.dataset.value; state.dictKeyword = ""; render(); }
+      if (action === "apply-dict-filter") { state.dictKeyword = document.getElementById("dictKeyword")?.value || ""; render(); }
+      if (action === "clear-dict-filter") { state.dictKeyword = ""; render(); }
+      if (action === "config-empty") { state.dictKeyword = "__NO_MATCH__"; render(); }
+      if (action === "open-add-dict") { renderAddModal(); }
+      if (action === "close-modal") { document.getElementById("overlayRoot").innerHTML = ""; }
+      if (action === "disable-dict") { renderDisableModal(target.dataset.id); }
+    });
+
+    document.addEventListener("change", (event) => {
+      if (event.target.id === "ticketViewSelect") { state.ticketView = event.target.value; render(); }
+    });
+
+    document.addEventListener("submit", (event) => {
+      if (event.target.id !== "chatForm") return;
+      event.preventDefault();
+      const input = event.target.elements.message;
+      const text = input.value.trim();
+      if (!text) { showToast("消息未发送", "VALIDATION_ERROR · message 不能为空", "error"); return; }
+      mock.messages.push({ from: "user", text, time: "现在" }, { from: "assistant", text: "这是本地 Mock 回复：我已收到你的描述。需要进一步处理时，可以点击“转人工”。", time: "现在" });
+      input.value = "";
+      showToast("消息已发送", "本地 Mock：仅更新当前会话 · code=SUCCESS", "success");
+      render();
+    });
+
+    function renderAddModal() {
+      document.getElementById("overlayRoot").innerHTML = `<div class="modal-backdrop"><form class="modal" id="addDictForm"><div class="modal-header"><h2>新增${esc(DICT_TABS.find(([key]) => key === state.activeDict)?.[1] || "字典项")}</h2><button type="button" class="icon-button" data-action="close-modal">×</button></div><div class="modal-body"><div class="form-stack"><div class="field"><label>code · 必填</label><input class="text-input" name="code" placeholder="例如 PASSWORD_RESET" required></div><div class="field"><label>name · 必填</label><input class="text-input" name="name" placeholder="请输入名称" required></div><div class="field"><label>parentId · 可选</label><input class="text-input" name="parentId" placeholder="父级字典项 ID"></div><div class="field"><label>sort · 可选</label><input class="text-input" name="sort" type="number" value="10"></div><div class="muted" style="font-size:12px">对应 ITSM-DICT-002；新项默认 enabled=true，保存需要 Idempotency-Key。</div></div></div><div class="modal-footer"><button type="button" class="ghost-button" data-action="close-modal">取消</button><button class="primary-button" type="submit">保存</button></div></form></div>`;
+    }
+
+    function renderDisableModal(itemId) {
+      const item = Object.values(mock.dicts).flat().find((entry) => entry.itemId === itemId);
+      document.getElementById("overlayRoot").innerHTML = `<div class="modal-backdrop"><form class="modal" id="disableDictForm"><div class="modal-header"><h2>停用字典项</h2><button type="button" class="icon-button" data-action="close-modal">×</button></div><div class="modal-body"><p style="margin:0 0 12px;line-height:1.6">确认停用 <strong>${esc(item?.name || itemId)}</strong>？停用后不能被新工单选择，历史工单仍可读取名称。</p><div class="field"><label>reason · 必填</label><textarea class="textarea-input" name="reason" placeholder="请输入停用原因" required></textarea></div><div class="muted" style="margin-top:10px;font-size:12px">对应 ITSM-DICT-004；一期不提供物理删除。</div></div><div class="modal-footer"><button type="button" class="ghost-button" data-action="close-modal">取消</button><button class="danger-button" type="submit" data-item-id="${esc(itemId)}">确认停用</button></div></form></div>`;
+    }
+
+    document.addEventListener("submit", (event) => {
+      if (event.target.id === "addDictForm") {
+        event.preventDefault();
+        const form = event.target;
+        const code = form.elements.code.value.trim();
+        const name = form.elements.name.value.trim();
+        if (!code || !name) { showToast("保存失败", "VALIDATION_ERROR · code/name 为必填字段", "error"); return; }
+        const list = mock.dicts[state.activeDict];
+        if (list.some((item) => item.code === code)) { showToast("保存失败", "RESOURCE_CONFLICT · 同一 dictType 下 code 已存在", "error"); return; }
+        list.unshift({ itemId: `dict_mock_${Date.now()}`, code, name, parentId: form.elements.parentId.value.trim() || null, enabled: true, sort: Number(form.elements.sort.value || 10), version: 1 });
+        document.getElementById("overlayRoot").innerHTML = "";
+        showToast("字典项已新增", "本地 Mock：对应 ITSM-DICT-002 · code=SUCCESS", "success");
+        render();
+      }
+      if (event.target.id === "disableDictForm") {
+        event.preventDefault();
+        const itemId = event.submitter?.dataset.itemId;
+        const reason = event.target.elements.reason.value.trim();
+        if (!reason) { showToast("停用失败", "VALIDATION_ERROR · reason 为必填字段", "error"); return; }
+        const item = Object.values(mock.dicts).flat().find((entry) => entry.itemId === itemId);
+        if (!item || !item.enabled) { showToast("停用失败", "RESOURCE_CONFLICT · 字典项已停用或不存在", "error"); return; }
+        item.enabled = false;
+        document.getElementById("overlayRoot").innerHTML = "";
+        showToast("字典项已停用", "本地 Mock：对应 ITSM-DICT-004 · code=SUCCESS", "success");
+        render();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>
