@@ -7,6 +7,7 @@ import com.cenziang.itsmcommon.api.ErrorCode;
 import com.cenziang.itsmcommon.api.PageResponse;
 import com.cenziang.itsmpojo.dto.RatingDtos;
 import com.cenziang.itsmpojo.dto.TicketDtos;
+import com.cenziang.itsmpojo.entity.AppUserEntity;
 import com.cenziang.itsmpojo.entity.ConversationMessageEntity;
 import com.cenziang.itsmpojo.entity.RatingEntity;
 import com.cenziang.itsmpojo.entity.TicketClassificationEntity;
@@ -15,6 +16,7 @@ import com.cenziang.itsmpojo.entity.TicketStatusHistoryEntity;
 import com.cenziang.itsmserver.application.RequestContext;
 import com.cenziang.itsmserver.infrastructure.JsonSupport;
 import com.cenziang.itsmserver.infrastructure.audit.AuditService;
+import com.cenziang.itsmserver.infrastructure.persistence.mapper.AppUserMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationMessageMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.RatingMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.TicketClassificationMapper;
@@ -24,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,11 +54,12 @@ public class TicketService {
     private final AuditService auditService;
     private final ConversationService conversationService;
     private final OutboxService outboxService;
+    private final AppUserMapper appUserMapper;
 
     public TicketService(TicketMapper ticketMapper, TicketClassificationMapper classificationMapper,
                          TicketStatusHistoryMapper statusHistoryMapper, RatingMapper ratingMapper,
                          ConversationMessageMapper messageMapper, JsonSupport jsonSupport, AuditService auditService,
-                         ConversationService conversationService, OutboxService outboxService) {
+                         ConversationService conversationService, OutboxService outboxService, AppUserMapper appUserMapper) {
         this.ticketMapper = ticketMapper;
         this.classificationMapper = classificationMapper;
         this.statusHistoryMapper = statusHistoryMapper;
@@ -64,6 +69,7 @@ public class TicketService {
         this.auditService = auditService;
         this.conversationService = conversationService;
         this.outboxService = outboxService;
+        this.appUserMapper = appUserMapper;
     }
 
     /**
@@ -132,7 +138,8 @@ public class TicketService {
         Page<TicketEntity> result = ticketMapper.selectPage(new Page<>(page, pageSize), wrapper);
         List<TicketDtos.TicketPageItem> items = result.getRecords().stream()
                 .map(t -> new TicketDtos.TicketPageItem(t.getTicketId(), t.getTicketNo(), t.getTitle(), t.getStatus(),
-                        t.getPriority(), t.getBusinessLineCode(), t.getAssigneeId(), t.getSessionId(), t.getUpdatedAt()))
+                        t.getPriority(), t.getBusinessLineCode(), t.getAssigneeId(), t.getSessionId(),
+                        Boolean.TRUE.equals(t.getIsSuspended()), t.getSuspendedReason(), t.getSuspendedAt(), t.getUpdatedAt()))
                 .toList();
         return PageResponse.of(items, result.getCurrent(), result.getSize(), result.getTotal());
     }
@@ -168,11 +175,15 @@ public class TicketService {
         TicketDtos.TicketRatingView ratingView = rating == null ? null
                 : new TicketDtos.TicketRatingView(rating.getRatingId(), rating.getScore(), jsonSupport.readStringList(rating.getTagsJson()),
                 rating.getComment(), rating.getCreatedAt());
+        AppUserEntity requester = resolveUser(ticket.getTenantId(), ticket.getRequesterId());
+        AppUserEntity assignee = ticket.getAssigneeId() == null ? null : resolveUser(ticket.getTenantId(), ticket.getAssigneeId());
         return new TicketDtos.TicketDetailResponse(ticket.getTicketId(), ticket.getTicketNo(), ticket.getTenantId(),
-                new TicketDtos.TicketRequesterView(ticket.getRequesterId(), null, null), ticket.getTitle(), ticket.getDescription(),
+                requesterView(requester, ticket.getRequesterId()), ticket.getTitle(), ticket.getDescription(),
                 ticket.getSource(), ticket.getStatus(), ticket.getPriority(), ticket.getBusinessLineCode(), classificationView,
-                ticket.getAssigneeId() == null ? null : new TicketDtos.TicketAssigneeView(ticket.getAssigneeId(), null),
-                null, historyViews, List.of(), ratingView, ticket.getCreatedAt(), ticket.getUpdatedAt());
+                assigneeView(assignee, ticket.getAssigneeId()),
+                null, ticket.getSessionId(),
+                Boolean.TRUE.equals(ticket.getIsSuspended()), ticket.getSuspendedReason(), ticket.getSuspendedAt(),
+                historyViews, List.of(), ratingView, ticket.getCreatedAt(), ticket.getUpdatedAt());
     }
 
     /**
@@ -189,7 +200,7 @@ public class TicketService {
                 .eq(TicketEntity::getTenantId, context.tenantId());
         String view = query.view() == null ? "PENDING" : query.view();
         switch (view) {
-            case "PENDING" -> wrapper.eq(TicketEntity::getStatus, "PENDING_ACCEPTANCE");
+            case "PENDING" -> wrapper.in(TicketEntity::getStatus, "PENDING_ACCEPTANCE", "REOPENED");
             case "IN_PROGRESS" -> wrapper.eq(TicketEntity::getStatus, "IN_PROGRESS");
             case "PENDING_CONFIRM" -> wrapper.eq(TicketEntity::getStatus, "PENDING_USER_CONFIRM");
             case "HISTORY" -> wrapper.in(TicketEntity::getStatus, "RESOLVED", "CLOSED");
@@ -199,10 +210,11 @@ public class TicketService {
                 .eq("ME".equalsIgnoreCase(query.assignee()), TicketEntity::getAssigneeId, context.userId())
                 .orderByDesc(TicketEntity::getUpdatedAt);
         Page<TicketEntity> result = ticketMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        Map<String, AppUserEntity> users = loadUsers(context.tenantId(), result.getRecords());
         List<TicketDtos.SupportQueueItem> items = result.getRecords().stream()
                 .map(t -> new TicketDtos.SupportQueueItem(t.getTicketId(), t.getTicketNo(), t.getTitle(), t.getStatus(), t.getPriority(),
-                        t.getBusinessLineCode(), new TicketDtos.TicketRequesterView(t.getRequesterId(), null, null),
-                        t.getAssigneeId() == null ? null : new TicketDtos.TicketAssigneeView(t.getAssigneeId(), null), t.getUpdatedAt()))
+                        t.getBusinessLineCode(), requesterView(users.get(t.getRequesterId()), t.getRequesterId()),
+                        assigneeView(users.get(t.getAssigneeId()), t.getAssigneeId()), t.getUpdatedAt()))
                 .toList();
         return PageResponse.of(items, result.getCurrent(), result.getSize(), result.getTotal());
     }
@@ -219,12 +231,13 @@ public class TicketService {
         if (!Set.of("PENDING_ACCEPTANCE", "REOPENED").contains(ticket.getStatus())) {
             throw new BusinessException(ErrorCode.ILLEGAL_STATE_TRANSITION);
         }
+        String previousStatus = ticket.getStatus();
         ticket.setStatus("IN_PROGRESS").setAssigneeId(context.userId()).setAcceptedAt(LocalDateTime.now());
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
         }
-        recordStatus(ticket, "PENDING_ACCEPTANCE", "IN_PROGRESS", context.userId(), "SUPPORT", "ACCEPT", request.note());
+        recordStatus(ticket, previousStatus, "IN_PROGRESS", context.userId(), "SUPPORT", "ACCEPT", request.note());
         if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
             conversationService.addSupportParticipant(context.tenantId(), ticket.getSessionId(), context.userId());
         }
@@ -316,6 +329,10 @@ public class TicketService {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
         }
         recordStatus(ticket, "IN_PROGRESS", "PENDING_USER_CONFIRM", context.userId(), "SUPPORT", "RESOLVE", request.resolution());
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.sendSystemMessage(context.tenantId(), ticket.getSessionId(),
+                    "工单 " + ticket.getTicketNo() + " 已被客服标记为解决，请确认并评价。");
+        }
         return detail(context, ticketId);
     }
 
@@ -377,12 +394,23 @@ public class TicketService {
         if (request.reason() == null || request.reason().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "reason is required");
         }
+        String previousStatus = ticket.getStatus();
         ticket.setStatus("REOPENED").setReopenReason(request.reason()).setReopenedBy(context.userId()).setReopenedAt(LocalDateTime.now());
         int updated = ticketMapper.updateById(ticket);
         if (updated < 1) {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
         }
-        recordStatus(ticket, ticket.getStatus(), "REOPENED", context.userId(), "USER", "REOPEN", request.reason());
+        // 清除旧评价，允许下一轮解决后重新评价
+        ratingMapper.delete(new LambdaQueryWrapper<RatingEntity>()
+                .eq(RatingEntity::getTenantId, context.tenantId())
+                .eq(RatingEntity::getTicketId, ticketId));
+        // 重新激活已归档的会话，允许继续群聊
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.reactivateSession(context.tenantId(), ticket.getSessionId());
+            conversationService.sendSystemMessage(context.tenantId(), ticket.getSessionId(),
+                    "工单 " + ticket.getTicketNo() + " 已被用户重新打开，原因：" + request.reason());
+        }
+        recordStatus(ticket, previousStatus, "REOPENED", context.userId(), "USER", "REOPEN", request.reason());
         return new TicketDtos.ReopenTicketResponse(ticketId, ticket.getStatus(), ticket.getReopenedAt(), ticket.getReopenedBy());
     }
 
@@ -412,7 +440,91 @@ public class TicketService {
                 .setScore(request.score()).setTagsJson(request.tags() == null ? null : jsonSupport.write(request.tags()))
                 .setComment(request.comment());
         ratingMapper.insert(rating);
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.sendSystemMessage(context.tenantId(), ticket.getSessionId(),
+                    "感谢您的评价，本次服务已结束。如需再次咨询，请到工作台发起新的对话。");
+            conversationService.archiveSession(context.tenantId(), ticket.getSessionId());
+        }
         return new RatingDtos.RateTicketResponse(ticketId, rating.getRatingId(), rating.getScore(), rating.getCreatedAt());
+    }
+
+    /**
+     * 客服挂起/恢复工单（切换挂起状态）。
+     */
+    @Transactional
+    public TicketDtos.SuspendTicketResponse toggleSuspend(RequestContext context, String ticketId, TicketDtos.SuspendTicketRequest request) {
+        if (!SUPPORT_ROLES.stream().anyMatch(context.roles()::contains)) {
+            throw new BusinessException(ErrorCode.ROLE_FORBIDDEN);
+        }
+        TicketEntity ticket = requireTicket(context.tenantId(), ticketId);
+        boolean nowSuspended = !Boolean.TRUE.equals(ticket.getIsSuspended());
+        ticket.setIsSuspended(nowSuspended);
+        if (nowSuspended) {
+            ticket.setSuspendedReason(request.reason() != null && !request.reason().isBlank() ? request.reason() : "用户长时间未回复，工单超时挂起");
+            ticket.setSuspendedAt(LocalDateTime.now());
+        } else {
+            ticket.setSuspendedReason(null);
+            ticket.setSuspendedAt(null);
+        }
+        int updated = ticketMapper.updateById(ticket);
+        if (updated < 1) {
+            throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "version conflict");
+        }
+        if (ticket.getSessionId() != null && !ticket.getSessionId().isBlank()) {
+            conversationService.sendSystemMessage(context.tenantId(), ticket.getSessionId(),
+                    nowSuspended ? "工单已挂起：" + ticket.getSuspendedReason() : "工单已恢复处理");
+        }
+        return new TicketDtos.SuspendTicketResponse(ticketId, nowSuspended, ticket.getSuspendedReason(), ticket.getSuspendedAt());
+    }
+
+    /**
+     * 按用户主键查询主档信息（不存在时返回 null）。
+     */
+    private AppUserEntity resolveUser(String tenantId, String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        return appUserMapper.selectOne(new LambdaQueryWrapper<AppUserEntity>()
+                .eq(AppUserEntity::getTenantId, tenantId)
+                .eq(AppUserEntity::getUserId, userId));
+    }
+
+    /**
+     * 批量加载一页工单涉及的请求人与处理人，避免逐条查询。
+     */
+    private Map<String, AppUserEntity> loadUsers(String tenantId, List<TicketEntity> tickets) {
+        Set<String> userIds = new HashSet<>();
+        for (TicketEntity t : tickets) {
+            userIds.add(t.getRequesterId());
+            if (t.getAssigneeId() != null) {
+                userIds.add(t.getAssigneeId());
+            }
+        }
+        userIds.remove(null);
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<AppUserEntity> users = appUserMapper.selectList(new LambdaQueryWrapper<AppUserEntity>()
+                .eq(AppUserEntity::getTenantId, tenantId)
+                .in(AppUserEntity::getUserId, userIds));
+        Map<String, AppUserEntity> map = new HashMap<>();
+        for (AppUserEntity user : users) {
+            map.put(user.getUserId(), user);
+        }
+        return map;
+    }
+
+    private TicketDtos.TicketRequesterView requesterView(AppUserEntity user, String userId) {
+        return new TicketDtos.TicketRequesterView(userId,
+                user == null ? null : user.getDisplayName(),
+                user == null ? null : user.getDepartmentName());
+    }
+
+    private TicketDtos.TicketAssigneeView assigneeView(AppUserEntity user, String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        return new TicketDtos.TicketAssigneeView(userId, user == null ? null : user.getDisplayName());
     }
 
     private TicketEntity requireTicket(String tenantId, String ticketId) {

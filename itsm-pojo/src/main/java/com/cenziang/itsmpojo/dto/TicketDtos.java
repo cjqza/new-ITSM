@@ -125,6 +125,9 @@ public final class TicketDtos {
             @Schema(description = "业务线编码") String businessLineCode,
             @Schema(description = "处理人") String assigneeId,
             @Schema(description = "关联会话") String sessionId,
+            @Schema(description = "是否挂起") Boolean isSuspended,
+            @Schema(description = "挂起原因") String suspendedReason,
+            @Schema(description = "挂起时间") LocalDateTime suspendedAt,
             @Schema(description = "更新时间") LocalDateTime updatedAt
     ) {
     }
@@ -144,6 +147,10 @@ public final class TicketDtos {
             @Schema(description = "分类") TicketClassificationView classification,
             @Schema(description = "处理人") TicketAssigneeView assignee,
             @Schema(description = "会话摘要") TicketConversationView conversation,
+            @Schema(description = "关联会话主键") String sessionId,
+            @Schema(description = "是否挂起") Boolean isSuspended,
+            @Schema(description = "挂起原因") String suspendedReason,
+            @Schema(description = "挂起时间") LocalDateTime suspendedAt,
             @Schema(description = "状态历史") List<TicketStatusHistoryView> statusHistory,
             @Schema(description = "审计事件") List<TicketAuditView> auditEvents,
             @Schema(description = "评价") TicketRatingView rating,
@@ -248,6 +255,21 @@ public final class TicketDtos {
             @Schema(description = "工单状态") String status,
             @Schema(description = "重开时间") LocalDateTime reopenedAt,
             @Schema(description = "重开人") String reopenedBy
+    ) {
+    }
+
+    @Schema(description = "工单挂起请求")
+    public record SuspendTicketRequest(
+            @Schema(description = "挂起原因") String reason
+    ) {
+    }
+
+    @Schema(description = "工单挂起响应")
+    public record SuspendTicketResponse(
+            @Schema(description = "工单主键") String ticketId,
+            @Schema(description = "是否挂起") Boolean isSuspended,
+            @Schema(description = "挂起原因") String suspendedReason,
+            @Schema(description = "挂起时间") LocalDateTime suspendedAt
     ) {
     }
 }

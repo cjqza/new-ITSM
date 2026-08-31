@@ -140,4 +140,19 @@ public class TicketEntity extends TenantCreatedUpdatedVersionEntity<TicketEntity
      * 重开人。
      */
     private String reopenedBy;
+
+    /**
+     * 是否挂起。
+     */
+    private Boolean isSuspended;
+
+    /**
+     * 挂起原因。
+     */
+    private String suspendedReason;
+
+    /**
+     * 挂起时间。
+     */
+    private LocalDateTime suspendedAt;
 }

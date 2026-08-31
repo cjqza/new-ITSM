@@ -36,7 +36,7 @@
     view: 'MESSAGES',
     chat: { type: 'ASSISTANT', id: 'assistant' },
     assistantStarted: false,
-    supportGroupSessionId: null,
+    supportGroupSessionIds: [],
     assistantDraft: '',
     colleagueDraft: '',
     contactKeyword: '',
@@ -64,6 +64,11 @@
       customEnd: '',
       appliedRange: '30'
     },
+    whaleRatingsLoaded: false,
+    whaleRatingScore: null,
+    whaleAgentRatings: [],
+    whaleRatedTickets: [],
+    whaleRatedTotal: 0,
     itsmApplication: {
       status: 'NONE',
       reason: '',
@@ -93,7 +98,8 @@
     reopenReason: '',
     ratingScore: 0,
     ratingComment: '',
-    scrollChatToBottomPending: false
+    scrollChatToBottomPending: false,
+    groupUnreadMap: {} // sessionId → unreadCount，群聊未读消息计数
   };
 
   function escapeHtml(value) {
@@ -213,8 +219,11 @@
       source: 'MANUAL',
       status: item.status,
       priority: item.priority,
+      sessionId: item.sessionId || null,
       businessLineCode: item.businessLineCode,
-      sessionId: item.sessionId,
+      isSuspended: Boolean(item.isSuspended),
+      suspendedReason: item.suspendedReason || null,
+      suspendedAt: item.suspendedAt || null,
       classification: null,
       assignee: item.assigneeId ? { userId: item.assigneeId, displayName: item.assigneeId } : null,
       conversation: null,
@@ -248,6 +257,8 @@
       sessionItem.messages = (detail.messages && detail.messages.items ? detail.messages.items : []).map((message) => ({
         messageId: message.messageId,
         senderType: message.senderType,
+        senderId: message.senderId,
+        senderDisplayName: message.senderDisplayName || null,
         content: message.content,
         createdAt: message.createdAt
       }));
@@ -286,16 +297,94 @@
     }
   }
 
+  async function loadEssentialData() {
+    try {
+      const [ticketPage, sessionPage] = await Promise.all([
+        apiGet('/api/v1/tickets?page=1&pageSize=50'),
+        apiGet('/api/v1/conversations/sessions/mine?page=1&pageSize=50')
+      ]);
+      remoteData.tickets = (ticketPage.items || []).map(mapTicket);
+      prevTicketStatusMap = {};
+      for (const t of remoteData.tickets) prevTicketStatusMap[t.ticketId] = t.status;
+      // 合并而非替换：保留已加载的 messages，只更新元数据
+      const oldSessionMap = {};
+      for (const s of remoteData.sessions) oldSessionMap[s.sessionId] = s;
+      const newSessions = (sessionPage.items || []).map(mapSession);
+      for (const s of newSessions) {
+        const old = oldSessionMap[s.sessionId];
+        if (old && old.messages && old.messages.length) {
+          s.messages = old.messages; // 保留已加载的消息
+        }
+      }
+      remoteData.sessions = newSessions;
+      for (const s of remoteData.sessions) {
+        if (s.ticketId && !state.supportGroupSessionIds.includes(s.sessionId)) {
+          state.supportGroupSessionIds.push(s.sessionId);
+        }
+      }
+      // 加载 IT 助手会话的消息（无 ticketId 且非 ARCHIVED）
+      const assistantSession = remoteData.sessions.find((s) => !s.ticketId && s.status !== 'ARCHIVED');
+      if (assistantSession && (!assistantSession.messages || !assistantSession.messages.length)) {
+        await loadSessionMessages(assistantSession);
+      }
+      await loadColleagueConversations();
+    } catch (error) {
+      remoteData.tickets = [];
+      remoteData.sessions = [];
+    }
+  }
+
+  async function loadTicketsOnly() {
+    try {
+      const ticketPage = await apiGet('/api/v1/tickets?page=1&pageSize=50');
+      remoteData.tickets = (ticketPage.items || []).map(mapTicket);
+      prevTicketStatusMap = {};
+      for (const t of remoteData.tickets) prevTicketStatusMap[t.ticketId] = t.status;
+    } catch (error) {
+      remoteData.tickets = [];
+    }
+  }
+
+  const viewDataLoaded = {};
+  async function loadViewData(view) {
+    if (viewDataLoaded[view]) return;
+    if (view === 'CONTACTS') { await loadContacts(); viewDataLoaded[view] = true; }
+    if (view === 'EMPLOYEES') { await loadEmployees(); viewDataLoaded[view] = true; }
+    if (view === 'DEPARTMENTS') { await loadDepartments(); viewDataLoaded[view] = true; }
+    if (view === 'APPROVALS') { await Promise.all([loadMyRequests(), loadApprovals()]); viewDataLoaded[view] = true; }
+    if (view === 'ITSM') { await Promise.all([loadMyRequests(), loadApprovals()]); viewDataLoaded.ITSM = true; viewDataLoaded.WHALE = true; }
+    if (view === 'WHALE') { await Promise.all([loadMyRequests(), loadApprovals()]); viewDataLoaded.WHALE = true; viewDataLoaded.ITSM = true; }
+  }
+
   async function loadRemoteData() {
     try {
       const [ticketPage, sessionPage] = await Promise.all([
         apiGet('/api/v1/tickets?page=1&pageSize=50'),
-        apiGet('/api/v1/conversations/sessions?page=1&pageSize=50')
+        apiGet('/api/v1/conversations/sessions/mine?page=1&pageSize=50')
       ]);
       remoteData.tickets = (ticketPage.items || []).map(mapTicket);
-      remoteData.sessions = (sessionPage.items || []).map(mapSession);
-      if (remoteData.sessions.length) {
-        await loadSessionMessages(remoteData.sessions[0]);
+      prevTicketStatusMap = {};
+      for (const t of remoteData.tickets) prevTicketStatusMap[t.ticketId] = t.status;
+      // 合并而非替换：保留已加载的 messages，只更新元数据
+      const oldSessionMap = {};
+      for (const s of remoteData.sessions) oldSessionMap[s.sessionId] = s;
+      const newSessions = (sessionPage.items || []).map(mapSession);
+      for (const s of newSessions) {
+        const old = oldSessionMap[s.sessionId];
+        if (old && old.messages && old.messages.length) {
+          s.messages = old.messages; // 保留已加载的消息
+        }
+      }
+      remoteData.sessions = newSessions;
+      for (const s of remoteData.sessions) {
+        if (s.ticketId && !state.supportGroupSessionIds.includes(s.sessionId)) {
+          state.supportGroupSessionIds.push(s.sessionId);
+        }
+      }
+      // 加载 IT 助手会话的消息（无 ticketId 且非 ARCHIVED）
+      const assistantSession = remoteData.sessions.find((s) => !s.ticketId && s.status !== 'ARCHIVED');
+      if (assistantSession && (!assistantSession.messages || !assistantSession.messages.length)) {
+        await loadSessionMessages(assistantSession);
       }
       await Promise.all([loadMyRequests(), loadApprovals(), loadContacts(), loadEmployees(), loadDepartments(), loadColleagueConversations()]);
     } catch (error) {
@@ -535,13 +624,15 @@
 
   async function sendAssistantMessage(text) {
     try {
-      let sessionId = currentSession() ? currentSession().sessionId : null;
+      let session = currentSession();
+      let sessionId = (session && session.status !== 'ARCHIVED') ? session.sessionId : null;
       if (!sessionId) {
         const created = await apiPost('/api/v1/conversations/sessions', {
           channel: 'WORKBENCH',
           subject: text.slice(0, 40)
         });
         sessionId = created.sessionId;
+        state.assistantStarted = true;
       }
       await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(sessionId) + '/messages', {
         clientMessageId: newClientMessageId(),
@@ -552,7 +643,7 @@
         state.handoff.description = text;
         state.handoffOpen = true;
       }
-      await loadRemoteData();
+      await loadEssentialData();
       state.scrollChatToBottomPending = true;
       render();
     } catch (error) {
@@ -561,17 +652,38 @@
   }
 
   async function sendSupportGroupMessage(sessionId, text) {
+    // 乐观更新：先把消息塞进本地，立即渲染
+    const session = remoteData.sessions.find((s) => s.sessionId === sessionId);
+    if (session) {
+      if (!session.messages) session.messages = [];
+      session.messages.push({
+        messageId: 'pending_' + Date.now(),
+        senderType: 'USER',
+        senderId: currentUserId(),
+        senderDisplayName: userProfile().displayName,
+        content: text,
+        createdAt: new Date().toISOString()
+      });
+      state.colleagueDraft = '';
+      state.scrollChatToBottomPending = true;
+      render();
+    }
     try {
       await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(sessionId) + '/messages', {
         clientMessageId: newClientMessageId(),
         content: text
       });
-      state.colleagueDraft = '';
-      await loadRemoteData();
-      state.scrollChatToBottomPending = true;
-      render();
+      // 后台静默同步，获取服务端 messageId 等
+      if (session) {
+        loadSessionMessages(session).then(() => { render(); });
+      }
     } catch (error) {
       showToast('发送失败', error.message, 'error');
+      // 失败时移除乐观消息并回滚
+      if (session) {
+        session.messages = session.messages.filter((m) => !String(m.messageId).startsWith('pending_'));
+        render();
+      }
     }
   }
 
@@ -583,7 +695,7 @@
     }
     try {
       await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(session.sessionId) + '/end', {});
-      await loadRemoteData();
+      await loadEssentialData();
       render();
       showToast('已结束', '会话已归档并清理缓存', 'success');
     } catch (error) {
@@ -722,9 +834,18 @@
     const title = state.handoff.title || (session && session.subject) || '转人工服务';
     const description = state.handoff.description || '用户请求转人工处理';
     try {
+      // 如果当前会话已经关联了工单，先创建新会话再提单，避免新工单覆盖旧工单的会话关联
+      let targetSession = session;
+      if (session && session.ticketId) {
+        const newSession = await apiPost('/api/v1/conversations/sessions', {
+          channel: 'WORKBENCH',
+          subject: title.slice(0, 80)
+        });
+        targetSession = { ...session, sessionId: newSession.sessionId, ticketId: null, subject: title.slice(0, 80), messages: [] };
+      }
       const created = await apiPost('/api/v1/tickets', {
         source: 'AGENT_HANDOFF',
-        sessionId: session ? session.sessionId : null,
+        sessionId: targetSession ? targetSession.sessionId : null,
         title: title,
         description: description,
         businessLineCode: 'IT_SUPPORT',
@@ -732,15 +853,16 @@
       });
       state.handoffOpen = false;
       state.handoffSuccess = created.ticketId;
-      if (session) {
-        state.supportGroupSessionId = session.sessionId;
-        state.assistantStarted = true;
-        state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + session.sessionId };
-        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-          chatSocket.send(JSON.stringify({ action: 'subscribe', sessionId: session.sessionId }));
+      if (targetSession) {
+        if (!state.supportGroupSessionIds.includes(targetSession.sessionId)) {
+          state.supportGroupSessionIds.push(targetSession.sessionId);
         }
+        state.assistantStarted = true;
+        state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + targetSession.sessionId };
+        subscribeGroupSessions();
       }
-      await loadRemoteData();
+      await loadEssentialData();
+      subscribeGroupSessions();
       render();
       showToast('转人工成功', `已生成工单 ${created.ticketNo}，已为你建群「IT客服」`, 'success');
     } catch (error) {
@@ -761,6 +883,9 @@
       statusHistory: detail.statusHistory || [],
       resolution: detail.resolution,
       rating: detail.rating,
+      isSuspended: Boolean(detail.isSuspended),
+      suspendedReason: detail.suspendedReason || null,
+      suspendedAt: detail.suspendedAt || null,
       createdAt: detail.createdAt,
       updatedAt: detail.updatedAt
     };
@@ -793,9 +918,10 @@
   async function confirmTicket(ticketId) {
     try {
       await apiPost('/api/v1/tickets/' + encodeURIComponent(ticketId) + '/confirm', {});
-      await loadRemoteData();
-      closeTicketDetail();
-      showToast('已确认解决', '工单已解决', 'success');
+      await loadTicketsOnly();
+      state.ticketAction = '';
+      render();
+      showToast('已确认解决', '请为本次服务评分', 'success');
     } catch (error) {
       showToast('操作失败', error.message, 'error');
     }
@@ -809,8 +935,11 @@
     }
     try {
       await apiPost('/api/v1/tickets/' + encodeURIComponent(ticketId) + '/reopen', { reason });
-      await loadRemoteData();
-      closeTicketDetail();
+      state.reopenReason = '';
+      state.ticketAction = '';
+      state.justRatedTicketId = null;
+      await loadTicketsOnly();
+      render();
       showToast('已重开', '工单已重新打开', 'success');
     } catch (error) {
       showToast('操作失败', error.message, 'error');
@@ -828,9 +957,25 @@
         comment: state.ratingComment || null,
         tags: []
       });
-      await loadRemoteData();
-      closeTicketDetail();
-      showToast('评价已提交', '感谢反馈', 'success');
+      state.justRatedTicketId = ticketId;
+      state.ratingScore = 0;
+      state.ratingComment = '';
+      state.ticketAction = '';
+      await loadTicketsOnly();
+      render();
+      showToast('评价已提交', '感谢您的反馈', 'success');
+      setTimeout(async () => {
+        const session = remoteData.sessions.find((s) => {
+          return s.ticketId === ticketId || userTickets().find((t) => t.sessionId === s.sessionId && t.ticketId === ticketId);
+        });
+        if (session) {
+          try { await apiPost('/api/v1/conversations/sessions/' + encodeURIComponent(session.sessionId) + '/end', {}); } catch (e) { /* 忽略归档失败 */ }
+          state.supportGroupSessionIds = state.supportGroupSessionIds.filter((sid) => sid !== session.sessionId);
+        }
+        state.justRatedTicketId = null;
+        state.chat = { type: 'ASSISTANT', id: 'assistant' };
+        render();
+      }, 3000);
     } catch (error) {
       showToast('操作失败', error.message, 'error');
     }
@@ -848,37 +993,6 @@
     `).join('') || '<div class="empty-state">暂无状态流转</div>';
 
     let actionArea = '';
-    if (d.status === 'PENDING_USER_CONFIRM') {
-      if (state.ticketAction === 'reopen') {
-        actionArea = `
-          <div class="td-action-form">
-            <input class="text-input" data-bind="reopenReason" placeholder="重开原因" value="${escapeHtml(state.reopenReason)}">
-            <button class="primary-button" data-action="submit-reopen" data-ticket-id="${escapeHtml(d.ticketId)}">提交重开</button>
-            <button class="ghost-button" data-action="cancel-ticket-action">取消</button>
-          </div>`;
-      } else {
-        actionArea = `
-          <div class="td-actions">
-            <button class="primary-button" data-action="confirm-ticket" data-ticket-id="${escapeHtml(d.ticketId)}">确认解决</button>
-            <button class="ghost-button" data-action="reopen-ticket" data-ticket-id="${escapeHtml(d.ticketId)}">重开</button>
-          </div>`;
-      }
-    } else if (['RESOLVED', 'CLOSED'].includes(d.status) && !d.rating) {
-      if (state.ticketAction === 'rating') {
-        const stars = [1, 2, 3, 4, 5].map((score) => `<button class="rating-star ${state.ratingScore === score ? 'selected' : ''}" data-action="set-rating" data-score="${score}">${score}</button>`).join('');
-        actionArea = `
-          <div class="td-action-form">
-            <div class="rating-stars">${stars}</div>
-            <input class="text-input" data-bind="ratingComment" placeholder="评价内容（可选）" value="${escapeHtml(state.ratingComment)}">
-            <button class="primary-button" data-action="submit-rating" data-ticket-id="${escapeHtml(d.ticketId)}">提交评价</button>
-            <button class="ghost-button" data-action="cancel-ticket-action">取消</button>
-          </div>`;
-      } else {
-        actionArea = `<div class="td-actions"><button class="primary-button" data-action="open-rating" data-ticket-id="${escapeHtml(d.ticketId)}">评价</button></div>`;
-      }
-    } else if (d.rating) {
-      actionArea = `<div class="td-actions"><span class="muted">已评价 ${escapeHtml(String(d.rating.score))} 分</span></div>`;
-    }
 
     return `
       <div class="popover-backdrop" data-action="close-ticket-detail"></div>
@@ -943,9 +1057,13 @@
   function historyTickets() {
     const now = new Date();
     const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const supportIds = state.supportGroupSessionIds || [];
+    const isSupport = hasItsmAccess();
     return userTickets().filter((ticket) => {
       const date = new Date(ticket.createdAt || ticket.updatedAt);
-      return !Number.isNaN(date.getTime()) && date >= cutoff;
+      if (Number.isNaN(date.getTime()) || date < cutoff) return false;
+      if (isSupport && ticket.sessionId && !supportIds.includes(ticket.sessionId)) return false;
+      return true;
     });
   }
 
@@ -954,7 +1072,8 @@
   }
 
   function currentSession() {
-    return userSessions()[0] || null;
+    // 返回当前 IT 助手会话：无 ticketId 且非 ARCHIVED
+    return userSessions().find((s) => !s.ticketId && s.status !== 'ARCHIVED') || null;
   }
 
   function statusLabel(status) {
@@ -1029,7 +1148,8 @@
   function renderShell(activeView, content) {
     const profile = userProfile();
     const historyCount = historyTickets().length;
-    const unreadCount = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
+    const unreadCount = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0)
+      + Object.values(state.groupUnreadMap || {}).reduce((sum, n) => sum + n, 0);
     const viewLabels = {
       MESSAGES: '消息',
       HISTORY: '历史工单',
@@ -1089,15 +1209,29 @@
   function renderMessages() {
     const sessions = userSessions();
     const colleagues = (state.colleagueConversations || []).slice().sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
-    const supportGroupSession = state.supportGroupSessionId ? sessions.find((s) => s.sessionId === state.supportGroupSessionId) : null;
-    const assistantItem = { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' };
-    const groupItem = supportGroupSession
-      ? { key: 'group_' + supportGroupSession.sessionId, type: 'SUPPORT_GROUP', name: (supportGroupSession.subject || 'IT客服'), subtitle: '转人工群聊', preview: '工单转人工后与 IT客服 的群聊', time: '现在', avatar: '客', tone: 'green' }
+    const supportGroupSessions = state.supportGroupSessionIds
+      .map((sid) => sessions.find((s) => s.sessionId === sid))
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.lastMessageAt || b.createdAt) - new Date(a.lastMessageAt || a.createdAt));
+    const activeSupportSession = state.chat.type === 'SUPPORT_GROUP'
+      ? sessions.find((s) => s.sessionId === state.chat.id.replace('group_', ''))
       : null;
+    const assistantItem = { key: 'assistant', type: 'ASSISTANT', name: 'IT 助手', subtitle: '智能服务助手', preview: '操作系统、网络、邮箱等问题都可以问我', time: '现在', avatar: 'IT', tone: 'blue' };
+    const groupItems = supportGroupSessions.map((s) => ({
+      key: 'group_' + s.sessionId, type: 'SUPPORT_GROUP', name: (s.subject || 'IT客服'), subtitle: '转人工群聊',
+      preview: s.summary || '工单转人工后与 IT客服 的群聊', time: s.lastMessageAt || s.createdAt, avatar: '客', tone: 'green',
+      unread: state.groupUnreadMap[s.sessionId] || 0
+    }));
+    const colleagueItems = colleagues.map((item) => ({
+      key: item.conversationId, type: 'COLLEAGUE', name: item.displayName, subtitle: item.departmentName,
+      preview: item.lastMessage, time: item.lastMessageAt, avatar: item.displayName.slice(0, 1), tone: '',
+      unread: item.unreadCount || 0
+    }));
+    // 群聊和同事会话按最近消息时间混合排序，IT 助手始终置顶
+    const chatItems = [...groupItems, ...colleagueItems].sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
     const items = [
       ...(state.assistantStarted ? [assistantItem] : []),
-      ...(groupItem ? [groupItem] : []),
-      ...colleagues.map((item) => ({ key: item.conversationId, type: 'COLLEAGUE', name: item.displayName, subtitle: item.departmentName, preview: item.lastMessage, time: formatDate(item.lastMessageAt), avatar: item.displayName.slice(0, 1), tone: '', unread: item.unreadCount || 0 }))
+      ...chatItems.map((item) => ({ ...item, time: formatDate(item.time) }))
     ];
     const filtered = state.portalSearch ? items.filter((item) => [item.name, item.subtitle, item.preview].join(' ').toLowerCase().includes(state.portalSearch.trim().toLowerCase())) : items;
     const sidebar = filtered.map((item) => `
@@ -1109,7 +1243,7 @@
     const chatContent = state.chat.type === 'COLLEAGUE'
       ? renderColleagueChat(colleague)
       : (state.chat.type === 'SUPPORT_GROUP'
-          ? renderSupportGroupChat(supportGroupSession)
+          ? renderSupportGroupChat(activeSupportSession)
           : (state.assistantStarted ? renderAssistantChat(sessions) : '<div class="chat-body"><div class="empty-state">IT 助手已移到工作台，请到工作台点击「咨询 IT 助手」开始对话。</div></div>'));
 
     const headerTitle = state.chat.type === 'COLLEAGUE' ? (colleague ? colleague.displayName : '同事')
@@ -1130,7 +1264,7 @@
   }
 
   function renderAssistantChat(sessions) {
-    const session = sessions[0] || currentSession();
+    const session = sessions.find((s) => !s.ticketId && s.status !== 'ARCHIVED') || null;
     const messages = session ? session.messages : [];
     const categories = [
       { key: 'OS', label: '操作系统问题', desc: '开机异常、系统更新、蓝屏死机' },
@@ -1184,11 +1318,53 @@
     const messages = session ? session.messages : [];
     const groupName = (session && session.subject) || 'IT客服';
     const messageHtml = messages.map((message) => {
-      const isUser = message.senderType === 'USER';
-      const label = isUser ? userProfile().displayName : (message.senderDisplayName || 'IT客服');
-      return `<div class="chat-message ${isUser ? 'user' : 'assistant'}"><div class="message-avatar">${isUser ? escapeHtml(userProfile().displayName.slice(0, 1)) : '客'}</div><div class="message-body"><div class="message-meta"><span>${escapeHtml(label)}</span><time>${escapeHtml(formatDateTime(message.createdAt))}</time></div><div class="message-bubble">${escapeHtml(message.content)}</div></div></div>`;
+      const isSystem = message.senderType === 'SYSTEM';
+      if (isSystem) {
+        return `<div class="chat-message system"><div class="message-body"><div class="message-bubble system-bubble">${escapeHtml(message.content)}</div></div></div>`;
+      }
+      const isMine = message.senderId === currentUserId();
+      const label = isMine ? userProfile().displayName : (message.senderDisplayName || (message.senderType === 'AGENT' ? 'IT助手' : 'IT客服'));
+      const cls = isMine ? 'user' : 'contact';
+      return `<div class="chat-message ${cls}"><div class="message-avatar">${escapeHtml(label.slice(0, 1))}</div><div class="message-body"><div class="message-meta"><span>${escapeHtml(label)}</span><time>${escapeHtml(formatDateTime(message.createdAt))}</time></div><div class="message-bubble">${escapeHtml(message.content)}</div></div></div>`;
     }).join('');
-    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="online">群聊</span><small>${escapeHtml(groupName)}</small></div><div class="message-thread">${messageHtml || '<div class="empty-state">已转人工，IT客服 即将接入</div>'}</div></div><form class="composer" id="support-group-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 IT客服">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(groupName)} · 群聊</span><button class="primary-button" type="submit">发送</button></div></form></div>`;
+
+    const sessionId = session ? session.sessionId : null;
+    const ticketIdFromSession = session ? session.ticketId : null;
+    const linkedTicket = ticketIdFromSession
+      ? userTickets().find((t) => t.ticketId === ticketIdFromSession)
+      : (sessionId ? userTickets().find((t) => t.sessionId === sessionId) : null);
+    const isArchived = session && session.status === 'ARCHIVED';
+    let ratingCard = '';
+    if (isArchived) {
+      ratingCard = '';
+    } else if (state.justRatedTicketId && linkedTicket && linkedTicket.ticketId === state.justRatedTicketId) {
+      ratingCard = `<div class="inline-rating-card rated"><div class="inline-rating-head"><strong>感谢支持 ❤️</strong><span>您的评价已提交，群聊即将关闭</span></div></div>`;
+    } else if (linkedTicket && linkedTicket.status === 'PENDING_USER_CONFIRM') {
+      if (state.ticketAction === 'reopen') {
+        ratingCard = `<div class="inline-rating-card"><div class="inline-rating-head"><strong>重开工单</strong><span>${escapeHtml(linkedTicket.ticketNo)} · 请填写重开原因</span></div><div class="inline-rating-form"><textarea class="text-input" rows="3" data-bind="reopenReason" placeholder="请输入重开原因（必填）">${escapeHtml(state.reopenReason)}</textarea><div class="inline-rating-actions"><button class="primary-button" data-action="submit-reopen" data-ticket-id="${escapeHtml(linkedTicket.ticketId)}">确认重开</button><button class="ghost-button" data-action="cancel-ticket-action">取消</button></div></div></div>`;
+      } else {
+        ratingCard = `<div class="inline-rating-card"><div class="inline-rating-head"><strong>工单待确认</strong><span>${escapeHtml(linkedTicket.ticketNo)} · 客服已标记为解决</span></div><div class="inline-rating-actions"><button class="primary-button" data-action="confirm-ticket" data-ticket-id="${escapeHtml(linkedTicket.ticketId)}">确认解决</button><button class="ghost-button" data-action="reopen-ticket" data-ticket-id="${escapeHtml(linkedTicket.ticketId)}">重开</button></div></div>`;
+      }
+    } else if (linkedTicket && ['RESOLVED', 'CLOSED'].includes(linkedTicket.status) && !linkedTicket.rating) {
+      if (state.ticketAction === 'rating') {
+        const stars = [1, 2, 3, 4, 5].map((score) => `<button class="rating-star ${state.ratingScore === score ? 'selected' : ''}" data-action="set-rating" data-score="${score}">${score}</button>`).join('');
+        ratingCard = `<div class="inline-rating-card"><div class="inline-rating-head"><strong>请为本次服务评分</strong></div><div class="inline-rating-form"><div class="rating-stars">${stars}</div><input class="text-input" data-bind="ratingComment" placeholder="评价内容（可选）" value="${escapeHtml(state.ratingComment)}"><div class="inline-rating-actions"><button class="primary-button" data-action="submit-rating" data-ticket-id="${escapeHtml(linkedTicket.ticketId)}">提交评价</button><button class="ghost-button" data-action="cancel-ticket-action">取消</button></div></div></div>`;
+      } else {
+        ratingCard = `<div class="inline-rating-card"><div class="inline-rating-head"><strong>工单已解决</strong><span>请为本次服务评分</span></div><div class="inline-rating-actions"><button class="primary-button" data-action="open-rating" data-ticket-id="${escapeHtml(linkedTicket.ticketId)}">评价</button></div></div>`;
+      }
+    } else if (linkedTicket && linkedTicket.rating) {
+      ratingCard = `<div class="inline-rating-card rated"><div class="inline-rating-head"><strong>已评价</strong><span>${'★'.repeat(linkedTicket.rating.score)}${'☆'.repeat(5 - linkedTicket.rating.score)}</span></div></div>`;
+    }
+
+    const suspendBanner = (linkedTicket && linkedTicket.isSuspended)
+      ? `<div class="suspend-banner"><strong>工单已挂起</strong><span>${escapeHtml(linkedTicket.suspendedReason || '等待用户回复，处理计时暂停')}</span></div>`
+      : '';
+
+    const composer = isArchived
+      ? `<div class="composer archived-notice"><span>此会话已结束，如需再次咨询请到工作台发起新对话</span></div>`
+      : `<form class="composer" id="support-group-form"><textarea class="textarea-input" name="message" placeholder="发送消息给 IT客服">${escapeHtml(state.colleagueDraft)}</textarea><div class="composer-footer"><span>${escapeHtml(groupName)} · 群聊</span><button class="primary-button" type="submit">发送</button></div></form>`;
+
+    return `<div class="chat-body"><div class="chat-scroll"><div class="colleague-strip"><span class="online">群聊</span><small>${escapeHtml(groupName)}</small></div><div class="message-thread">${messageHtml || '<div class="empty-state">已转人工，IT客服 即将接入</div>'}</div>${suspendBanner}${ratingCard}</div>${composer}`;
   }
 
   function renderContextCards(name) {
@@ -1502,10 +1678,94 @@
     renderShell('WHALE', `<section class="itsm-system-container"><div class="itsm-system-toolbar"><div><span class="status-chip info">数鲸看板</span><small>看板权限申请与查看</small></div></div>${body}</section>`);
   }
 
+  async function loadWhaleRatings() {
+    if (!session.accessToken) return;
+    try {
+      const query = state.whaleRatingScore ? ('&score=' + state.whaleRatingScore) : '';
+      const [agents, ticketPage] = await Promise.all([
+        apiGet('/api/v1/ratings/agents'),
+        apiGet('/api/v1/ratings/tickets?page=1&pageSize=100' + query)
+      ]);
+      state.whaleAgentRatings = agents || [];
+      state.whaleRatedTickets = (ticketPage && ticketPage.items) || [];
+      state.whaleRatedTotal = (ticketPage && ticketPage.total) || 0;
+    } catch (error) {
+      state.whaleAgentRatings = [];
+      state.whaleRatedTickets = [];
+      state.whaleRatedTotal = 0;
+    }
+  }
+
+  function starGlyphs(score) {
+    const n = Math.max(0, Math.min(5, Math.round(Number(score) || 0)));
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  function whaleRatingFilterButtons() {
+    const buttons = [`<button class="whale-rating-button ${state.whaleRatingScore == null ? 'active' : ''}" data-action="whale-rating-filter" data-score="">全部</button>`];
+    for (let score = 1; score <= 5; score++) {
+      buttons.push(`<button class="whale-rating-button ${state.whaleRatingScore === score ? 'active' : ''}" data-action="whale-rating-filter" data-score="${score}">${score} 星</button>`);
+    }
+    return buttons.join('');
+  }
+
+  function agentRatingHtml() {
+    const rows = state.whaleAgentRatings || [];
+    if (!rows.length) return '<div class="empty-state">暂无评分数据</div>';
+    return rows.map((item) => {
+      const name = item.agentDisplayName || item.agentUserId || '未分配';
+      const avg = Number(item.avgScore) || 0;
+      const counts = item.starCounts || [0, 0, 0, 0, 0];
+      const breakdown = [1, 2, 3, 4, 5].map((star) => `<span>${star} 星 ${counts[star - 1] || 0}</span>`).join('');
+      return `
+        <div class="whale-agent-rating">
+          <div class="whale-agent-rating-head">
+            <strong>${escapeHtml(name)}</strong>
+            <span class="whale-avg-score">${avg.toFixed(1)} 分</span>
+          </div>
+          <div class="whale-agent-rating-stars">${starGlyphs(avg)}</div>
+          <div class="whale-agent-rating-meta">共 ${escapeHtml(String(item.ratingCount || 0))} 次评价 · ${escapeHtml(item.departmentName || '未分部门')}</div>
+          <div class="whale-star-breakdown">${breakdown}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function ratedTicketHtml() {
+    const rows = state.whaleRatedTickets || [];
+    if (!rows.length) {
+      return `<div class="empty-state">${state.whaleRatingScore ? state.whaleRatingScore + ' 星暂无工单' : '暂无已评工单'}</div>`;
+    }
+    return rows.map((item) => {
+      const assignee = item.assigneeDisplayName || item.assigneeUserId || '—';
+      const requester = item.requesterDisplayName || '—';
+      const stars = starGlyphs(item.score);
+      return `
+        <div class="whale-rated-item">
+          <div class="whale-rated-main">
+            <strong>${escapeHtml(item.ticketNo)}</strong>
+            <span>${escapeHtml(item.title)}</span>
+            <span class="whale-rated-stars">${stars}</span>
+          </div>
+          <div class="whale-rated-meta">
+            <span>负责人：${escapeHtml(assignee)}</span>
+            <span>提单人：${escapeHtml(requester)}</span>
+            <time>${escapeHtml(formatDateTime(item.ratedAt))}</time>
+          </div>
+          ${item.comment ? `<div class="whale-rated-comment">${escapeHtml(item.comment)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
   function renderWhale() {
     if (!hasWhaleAccess()) {
       renderWhalePermission();
       return;
+    }
+    if (!state.whaleRatingsLoaded) {
+      state.whaleRatingsLoaded = true;
+      loadWhaleRatings().finally(() => render());
     }
     const workload = DATA.whaleWorkload || [];
     const distribution = DATA.whaleDistribution || [];
@@ -1513,7 +1773,6 @@
     const solvedTotal = workload.reduce((sum, item) => sum + item.solvedPerDay, 0);
     const unresolvedTotal = workload.reduce((sum, item) => sum + item.unresolved, 0);
     const over48Total = workload.reduce((sum, item) => sum + item.over48Hours, 0);
-    const distributionTotal = distribution.reduce((sum, item) => sum + item.count, 0) || 1;
     const maxCreated = Math.max(...workload.map((item) => item.draftPerDay), 1);
     const maxSolved = Math.max(...workload.map((item) => item.solvedPerDay), 1);
     const maxUnresolved = Math.max(...distribution.map((item) => item.count), 1);
@@ -1523,11 +1782,13 @@
     const rangeLabel = state.whaleFilter.appliedRange === 'custom' ? `${state.whaleFilter.customStart || '开始日期'} 至 ${state.whaleFilter.customEnd || '结束日期'}` : state.whaleFilter.appliedRange === '1' ? '昨天' : state.whaleFilter.appliedRange === '7' ? '今天' : '最近 30 天';
     renderShell('WHALE', `
       <section class="page-section whale-page">
-        <div class="page-heading"><div><h1>数鲸看板</h1><p>ITSM 工作量、解决情况与未解决工单分布</p></div><span class="status-chip info">统计范围：${escapeHtml(rangeLabel)}</span></div>
+        <div class="page-heading"><div><h1>数鲸看板</h1><p>ITSM 工作量、解决情况、未解决工单分布与客服评分</p></div><span class="status-chip info">统计范围：${escapeHtml(rangeLabel)}</span></div>
         <section class="panel whale-filter-panel"><div class="whale-filter-head"><strong>时间范围</strong><small>选择要统计的工单数据范围</small></div><div class="whale-filter-options"><button class="whale-range-button ${state.whaleFilter.range === '1' ? 'active' : ''}" data-action="whale-range" data-range="1">昨天</button><button class="whale-range-button ${state.whaleFilter.range === '7' ? 'active' : ''}" data-action="whale-range" data-range="7">今天</button><button class="whale-range-button ${state.whaleFilter.range === '30' ? 'active' : ''}" data-action="whale-range" data-range="30">最近 30 天</button><label class="whale-custom-range">自定义<input class="text-input" type="date" data-bind="whaleCustomStart" value="${escapeHtml(state.whaleFilter.customStart)}"><span>至</span><input class="text-input" type="date" data-bind="whaleCustomEnd" value="${escapeHtml(state.whaleFilter.customEnd)}"></label></div><div class="whale-filter-actions"><button class="ghost-button" data-action="whale-reset">重置</button><button class="primary-button" data-action="whale-query">查询</button></div></section>
         <div class="whale-metric-grid">${whaleMetric('草稿池创建量', createdTotal, '当前筛选范围', 'blue')}${whaleMetric('工单解决量', solvedTotal, '当前筛选范围', 'green')}${whaleMetric('所有未解决数量', unresolvedTotal, '尚未关闭的工单', 'amber')}${whaleMetric('48 小时未解决数量', over48Total, '超过处理时限', 'red')}</div>
         <div class="whale-chart-grid"><section class="panel whale-chart-panel"><div class="panel-head"><h2>工单创建统计图</h2><p>横轴：客服名字 · 纵轴：工单创建量</p></div><div class="whale-chart-body">${createdBars || '<div class="empty-state">暂无数据</div>'}</div></section><section class="panel whale-chart-panel"><div class="panel-head"><h2>工单解决统计图</h2><p>横轴：客服名字 · 纵轴：工单解决量</p></div><div class="whale-chart-body">${solvedBars || '<div class="empty-state">暂无数据</div>'}</div></section></div>
         <section class="panel whale-chart-panel unresolved-panel"><div class="panel-head"><h2>未解决工单分布图</h2><p>按问题类型统计当前未解决工单数量</p></div><div class="whale-chart-body distribution-body">${distributionBars || '<div class="empty-state">暂无未解决工单</div>'}</div></section>
+        <section class="panel whale-chart-panel"><div class="panel-head"><h2>客服工作评分</h2><p>各客服平均评分与评价分布（满分五颗星）</p></div><div class="whale-rating-body">${agentRatingHtml()}</div></section>
+        <section class="panel whale-chart-panel"><div class="panel-head"><h2>按评分筛选工单</h2><p>点击星级筛选对应评分工单并查看负责人</p></div><div class="whale-rating-filter">${whaleRatingFilterButtons()}</div><div class="whale-rated-list">${ratedTicketHtml()}</div></section>
       </section>
     `);
   }
@@ -1546,7 +1807,8 @@
       state.chat = { type: 'ASSISTANT', id: 'assistant' };
       state.portalSearch = '';
       if (state.view === 'MESSAGES') state.scrollChatToBottomPending = true;
-      render();
+      if (state.view === 'MESSAGES') { render(); }
+      loadViewData(state.view).finally(() => { render(); });
       return;
     }
     if (action === 'consult-assistant') {
@@ -1556,9 +1818,10 @@
       state.portalSearch = '';
       state.scrollChatToBottomPending = true;
       render();
-      if (!currentSession()) {
+      const activeSession = currentSession();
+      if (!activeSession || activeSession.status === 'ARCHIVED') {
         apiPost('/api/v1/conversations/sessions', { channel: 'WORKBENCH', subject: 'IT 助手' })
-          .then(() => loadRemoteData().finally(() => { state.scrollChatToBottomPending = true; render(); }))
+          .then(() => loadEssentialData().finally(() => { state.scrollChatToBottomPending = true; render(); }))
           .catch(() => {});
       }
       return;
@@ -1725,6 +1988,16 @@
       }
       state.chat = { type: target.dataset.type || 'ASSISTANT', id: target.dataset.id || 'assistant' };
       state.scrollChatToBottomPending = true;
+      // 群聊/助手会话：消息为空时先加载再渲染
+      if (target.dataset.type === 'SUPPORT_GROUP') {
+        const sid = target.dataset.id.replace('group_', '');
+        state.groupUnreadMap[sid] = 0; // 清除未读
+        const sess = remoteData.sessions.find((s) => s.sessionId === sid);
+        if (sess && (!sess.messages || !sess.messages.length)) {
+          loadSessionMessages(sess).then(() => { render(); });
+          return;
+        }
+      }
       render();
       return;
     }
@@ -1866,7 +2139,14 @@
       showToast('查询完成', '已按当前时间范围刷新看板数据', 'success');
       render();
       return;
-    }    if (action === 'refresh-contacts') {
+    }
+    if (action === 'whale-rating-filter') {
+      const score = target.dataset.score || null;
+      state.whaleRatingScore = score ? Number(score) : null;
+      loadWhaleRatings().finally(() => render());
+      return;
+    }
+    if (action === 'refresh-contacts') {
       loadContacts().finally(() => render());
       return;
     }
@@ -1890,12 +2170,22 @@
     }
     if (action === 'open-history-ticket') {
       const sessionId = target.dataset.sessionId;
+      const ticketId = target.dataset.ticketId;
       if (sessionId) {
-        state.supportGroupSessionId = sessionId;
+        if (!state.supportGroupSessionIds.includes(sessionId)) {
+          state.supportGroupSessionIds.push(sessionId);
+        }
         state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + sessionId };
         state.view = 'MESSAGES';
-        const session = remoteData.sessions.find((s) => s.sessionId === sessionId);
-        if (session && !session.messages) loadSessionMessages(session);
+        let session = remoteData.sessions.find((s) => s.sessionId === sessionId);
+        if (!session) {
+          session = { sessionId: sessionId, ticketId: ticketId || null, subject: '历史群聊', messages: [], status: 'ARCHIVED' };
+          remoteData.sessions.push(session);
+        }
+        if (!session.messages || !session.messages.length) {
+          loadSessionMessages(session).then(() => { state.scrollChatToBottomPending = true; render(); });
+          return;
+        }
         state.scrollChatToBottomPending = true;
         render();
       } else {
@@ -1978,9 +2268,10 @@
           state.loggedIn = true;
           render();
           showToast('登录成功', `欢迎 ${data.user.displayName}`, 'success');
-          loadRemoteData().finally(() => {
+          loadEssentialData().finally(() => {
             state.scrollChatToBottomPending = true;
             render();
+            connectChatSocket();
           });
         })
         .catch((error) => showToast('登录失败', error.message, 'error'));
@@ -2006,8 +2297,9 @@
     if (form.id === 'support-group-form') {
       event.preventDefault();
       const text = String(new FormData(form).get('message') || '').trim();
-      if (!text || !state.supportGroupSessionId) return;
-      sendSupportGroupMessage(state.supportGroupSessionId, text);
+      const sessionId = state.chat.type === 'SUPPORT_GROUP' ? state.chat.id.replace('group_', '') : null;
+      if (!text || !sessionId) return;
+      sendSupportGroupMessage(sessionId, text);
       return;
     }
     if (form.id === 'oa-approval-form') {
@@ -2213,7 +2505,9 @@
   }
 
   function updateNavBadge() {
-    const totalUnread = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
+    const colleagueUnread = (state.colleagueConversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
+    const groupUnread = Object.values(state.groupUnreadMap || {}).reduce((sum, n) => sum + n, 0);
+    const totalUnread = colleagueUnread + groupUnread;
     const navButton = document.querySelector('.portal-nav-button[data-view="MESSAGES"]');
     if (!navButton) return;
     const existing = navButton.querySelector('.portal-nav-count');
@@ -2225,6 +2519,7 @@
     }
   }
 
+  let prevTicketStatusMap = {};
   let lastSidebarSignature = '';
   window.setInterval(() => {
     if (!state.loggedIn) return;
@@ -2250,7 +2545,65 @@
         }
       }
     });
-  }, 5000);
+  }, 10000);
+
+  // 群聊会话轮询：15 秒刷新会话列表（更新排序+兜底 WebSocket 漏消息）
+  let lastGroupSignature = '';
+  window.setInterval(() => {
+    if (!state.loggedIn) return;
+    apiGet('/api/v1/conversations/sessions/mine?page=1&pageSize=50').then((sessionPage) => {
+      const oldSessionMap = {};
+      for (const s of remoteData.sessions) oldSessionMap[s.sessionId] = s;
+      const newSessions = (sessionPage.items || []).map(mapSession);
+      for (const s of newSessions) {
+        const old = oldSessionMap[s.sessionId];
+        if (old) {
+          // 保留已加载的消息
+          if (old.messages && old.messages.length) {
+            s.messages = old.messages;
+          }
+          // 保留 WebSocket 更新的更新鲜的 lastMessageAt
+          if (old.lastMessageAt && new Date(old.lastMessageAt) > new Date(s.lastMessageAt || 0)) {
+            s.lastMessageAt = old.lastMessageAt;
+          }
+          // 检测新消息：服务端 lastMessageAt 比本地记录更新 → 有新消息
+          if (s.ticketId && old.lastMessageAt && s.lastMessageAt !== old.lastMessageAt) {
+            const isActive = state.view === 'MESSAGES' && state.chat.type === 'SUPPORT_GROUP'
+              && state.chat.id === 'group_' + s.sessionId;
+            if (!isActive) {
+              state.groupUnreadMap[s.sessionId] = (state.groupUnreadMap[s.sessionId] || 0) + 1;
+            }
+          }
+        }
+        // 注册新的群聊会话
+        if (s.ticketId && !state.supportGroupSessionIds.includes(s.sessionId)) {
+          state.supportGroupSessionIds.push(s.sessionId);
+        }
+      }
+      remoteData.sessions = newSessions;
+      subscribeGroupSessions();
+      // 对当前打开的群聊，如果消息为空则加载
+      const activeSid = state.chat.type === 'SUPPORT_GROUP' ? state.chat.id.replace('group_', '') : null;
+      if (activeSid) {
+        const activeSession = remoteData.sessions.find((s) => s.sessionId === activeSid);
+        if (activeSession && (!activeSession.messages || !activeSession.messages.length)) {
+          loadSessionMessages(activeSession).then(() => {
+            state.scrollChatToBottomPending = true;
+            if (state.view === 'MESSAGES') render();
+          });
+        }
+      }
+      const signature = state.supportGroupSessionIds.map((sid) => {
+        const s = remoteData.sessions.find((ss) => ss.sessionId === sid);
+        return sid + ':' + (s ? s.lastMessageAt : '') + ':' + (state.groupUnreadMap[sid] || 0);
+      }).join('|');
+      if (signature !== lastGroupSignature) {
+        lastGroupSignature = signature;
+        if (state.view === 'MESSAGES') render();
+        else updateNavBadge();
+      }
+    }).catch(() => {});
+  }, 15000);
 
   let lastApprovalSignature = '';
   window.setInterval(() => {
@@ -2260,43 +2613,122 @@
         (state.approvals || []).map((r) => r.requestId + ':' + r.status).join('|');
       if (signature !== lastApprovalSignature) {
         lastApprovalSignature = signature;
-        if (state.view === 'APPROVALS') render();
+        if (['APPROVALS', 'ITSM', 'WHALE'].includes(state.view)) render();
       }
     });
-  }, 5000);
+  }, 10000);
+
+  // 轮询工单状态变更：当客服点"已解决"后工单进入 PENDING_USER_CONFIRM，自动通知用户并弹出详情
+  window.setInterval(() => {
+    if (!state.loggedIn || !session.accessToken) return;
+    apiGet('/api/v1/tickets?page=1&pageSize=50').then((ticketPage) => {
+      const newTickets = (ticketPage.items || []).map(mapTicket);
+      const oldMap = prevTicketStatusMap;
+      prevTicketStatusMap = {};
+      for (const t of newTickets) {
+        prevTicketStatusMap[t.ticketId] = t.status;
+        const oldStatus = oldMap[t.ticketId];
+        if (oldStatus && oldStatus !== t.status && t.status === 'PENDING_USER_CONFIRM') {
+          showToast('工单待确认', t.ticketNo + ' 已被客服标记为解决，请确认', 'info');
+          remoteData.tickets = newTickets;
+          // 刷新会话列表以获取最新的 ticketId 关联，再跳转到群聊
+          apiGet('/api/v1/conversations/sessions/mine?page=1&pageSize=50').then((sessionPage) => {
+            remoteData.sessions = (sessionPage.items || []).map(mapSession);
+            const sgSession = remoteData.sessions.find((s) => s.ticketId === t.ticketId);
+            if (sgSession) {
+              if (!state.supportGroupSessionIds.includes(sgSession.sessionId)) state.supportGroupSessionIds.push(sgSession.sessionId);
+              state.chat = { type: 'SUPPORT_GROUP', id: 'group_' + sgSession.sessionId };
+              state.view = 'MESSAGES';
+            }
+            openTicketDetail(t.ticketId);
+          }).catch(() => { openTicketDetail(t.ticketId); });
+        }
+      }
+      if (!Object.keys(oldMap).length) return;
+      remoteData.tickets = newTickets;
+      if (state.view === 'HISTORY') render();
+    }).catch(() => {});
+  }, 30000);
 
   let chatSocket = null;
+  const subscribedSessionIds = new Set();
+
+  function subscribeGroupSessions() {
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+    for (const sid of state.supportGroupSessionIds) {
+      if (!subscribedSessionIds.has(sid)) {
+        chatSocket.send(JSON.stringify({ action: 'subscribe', sessionId: sid }));
+        subscribedSessionIds.add(sid);
+      }
+    }
+  }
+
   function connectChatSocket() {
     if (!state.loggedIn || !session.accessToken) return;
     if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
+    subscribedSessionIds.clear();
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
     const url = proto + location.host + '/ws/chat?token=' + encodeURIComponent(session.accessToken);
     chatSocket = new WebSocket(url);
     chatSocket.onopen = () => {
-      if (state.supportGroupSessionId) {
-        chatSocket.send(JSON.stringify({ action: 'subscribe', sessionId: state.supportGroupSessionId }));
-      }
+      subscribeGroupSessions();
     };
     chatSocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data && data.sessionId && data.sessionId === state.supportGroupSessionId) {
+        if (data && data.sessionId && state.supportGroupSessionIds.includes(data.sessionId)) {
           const session = remoteData.sessions.find((s) => s.sessionId === data.sessionId);
-          if (session) {
+          if (!session) return;
+          const isActive = state.view === 'MESSAGES' && state.chat.type === 'SUPPORT_GROUP'
+            && state.chat.id === 'group_' + data.sessionId;
+          // 判断是否是自己发的消息（用户自己发的不计未读）
+          const senderIsSelf = data.senderId === session.userId;
+          // 更新会话的最后消息时间，用于排序
+          if (data.createdAt) {
+            session.lastMessageAt = data.createdAt;
+            session.summary = data.content ? (data.content.length > 100 ? data.content.slice(0, 100) : data.content) : session.summary;
+          }
+          // 消息已加载过 → 追加；未加载 → 全量拉取
+          if (data.messageId && session.messages && session.messages.length) {
+            const exists = session.messages.some((m) => m.messageId === data.messageId);
+            if (!exists) {
+              session.messages.push({
+                messageId: data.messageId,
+                senderType: data.senderType || 'SUPPORT',
+                senderId: data.senderId || '',
+                senderDisplayName: data.senderDisplayName || null,
+                content: data.content || '',
+                createdAt: data.createdAt || new Date().toISOString()
+              });
+              // 非当前打开的群聊且非自己发的消息 → 累加未读
+              if (!isActive && !senderIsSelf) {
+                state.groupUnreadMap[data.sessionId] = (state.groupUnreadMap[data.sessionId] || 0) + 1;
+              }
+              if (isActive) {
+                state.scrollChatToBottomPending = true;
+              }
+              render();
+            }
+          } else {
             loadSessionMessages(session).then(() => {
-              state.scrollChatToBottomPending = true;
+              if (isActive) {
+                state.scrollChatToBottomPending = true;
+              }
               render();
             });
           }
         }
       } catch (e) {}
     };
-    chatSocket.onclose = () => { chatSocket = null; };
+    chatSocket.onclose = () => {
+      chatSocket = null;
+      subscribedSessionIds.clear();
+    };
   }
 
   if (state.loggedIn) {
     render();
-    Promise.all([loadMe(), loadRemoteData()]).finally(() => {
+    Promise.all([loadMe(), loadEssentialData()]).finally(() => {
       state.scrollChatToBottomPending = true;
       render();
       connectChatSocket();

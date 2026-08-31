@@ -79,9 +79,9 @@
       auditEvents: [],
       resolution: null,
       rating: null,
-      isSuspended: false,
-      suspendedAt: null,
-      suspendedReason: '',
+      isSuspended: Boolean(item.isSuspended),
+      suspendedAt: item.suspendedAt || null,
+      suspendedReason: item.suspendedReason || '',
       slaPausedAt: null,
       slaAccumulatedMs: 0,
       slaHours: 8,
@@ -257,9 +257,9 @@
       auditEvents: [],
       resolution: null,
       rating: null,
-      isSuspended: false,
-      suspendedAt: null,
-      suspendedReason: '',
+      isSuspended: Boolean(item.isSuspended),
+      suspendedAt: item.suspendedAt || null,
+      suspendedReason: item.suspendedReason || '',
       slaPausedAt: null,
       slaAccumulatedMs: 0,
       slaHours: 8,
@@ -417,7 +417,7 @@
   async function acceptTicketReal(ticketId) {
     try {
       await apiPost('/api/v1/support/tickets/' + encodeURIComponent(ticketId) + '/accept', { note: '受理' });
-      await loadRealTickets();
+      await Promise.all([loadRealTickets(), loadRealSessions()]);
       state.overlay = null;
       renderStart();
       renderOverlayWrapper();
@@ -466,9 +466,9 @@
       auditEvents: (detail.auditEvents || []).map((a) => ({ action: a.action, occurredAt: a.occurredAt, actor: a.actor })),
       resolution: detail.resolution ? { summary: detail.resolution.summary || '', method: detail.resolution.method || '' } : null,
       rating: detail.rating ? { score: detail.rating.score, comment: detail.rating.comment } : null,
-      isSuspended: false,
-      suspendedAt: null,
-      suspendedReason: '',
+      isSuspended: Boolean(detail.isSuspended),
+      suspendedAt: detail.suspendedAt || null,
+      suspendedReason: detail.suspendedReason || '',
       slaPausedAt: null,
       slaAccumulatedMs: 0,
       slaHours: 8,
@@ -810,6 +810,21 @@
     window.__itsmSlaClock = window.setInterval(updateSlaIndicators, 1000);
   }
 
+  function startTicketPolling() {
+    if (window.__itsmTicketPolling) return;
+    window.__itsmTicketPolling = window.setInterval(async () => {
+      if (!ITSM_SESSION || !ITSM_SESSION.accessToken) return;
+      const prevSignature = DATA.tickets.map((t) => t.ticketId + ':' + t.status + ':' + (t.assigneeId || '')).join('|')
+        + '#' + (DATA.sessions || []).map((s) => s.sessionId + ':' + (s.ticketId || '')).join('|');
+      await Promise.all([loadRealTickets(), loadRealSessions()]);
+      const newSignature = DATA.tickets.map((t) => t.ticketId + ':' + t.status + ':' + (t.assigneeId || '')).join('|')
+        + '#' + (DATA.sessions || []).map((s) => s.sessionId + ':' + (s.ticketId || '')).join('|');
+      if (newSignature !== prevSignature) {
+        refreshCurrentView();
+      }
+    }, 10000);
+  }
+
   function businessLineView(code) {
     return (DATA.businessLines || BUSINESS_LINES).find((item) => item.code === code) || { code, name: code };
   }
@@ -834,12 +849,12 @@
   }
 
   function supportDraftTickets() {
-    return supportTickets().filter((ticket) => ['NEW', 'PENDING_ACCEPTANCE'].includes(ticket.status));
+    return supportTickets().filter((ticket) => ['NEW', 'PENDING_ACCEPTANCE', 'REOPENED'].includes(ticket.status));
   }
 
   function supportMineTickets() {
     const currentUserId = currentUser().userId;
-    return supportTickets().filter((ticket) => ticket.assignee && ticket.assignee.userId === currentUserId && !['RESOLVED', 'CLOSED'].includes(ticket.status));
+    return supportTickets().filter((ticket) => ticket.assignee && ticket.assignee.userId === currentUserId && !['RESOLVED', 'CLOSED', 'REOPENED'].includes(ticket.status));
   }
 
   function supportPostTickets() {
@@ -1151,6 +1166,31 @@
     return `priority-${priority}`;
   }
 
+  /** 计算 SLA 消耗百分比（0-100），考虑挂起暂停 */
+  function slaPercent(ticket) {
+    if (!ticket || !ticket.slaHours || ticket.slaHours <= 0) return 0;
+    const totalMs = ticket.slaHours * 3600000;
+    let elapsed = ticket.slaAccumulatedMs || 0;
+    if (ticket.slaStartedAt && !ticket.slaPausedAt) {
+      elapsed += (Date.now() - new Date(ticket.slaStartedAt).getTime());
+    }
+    return Math.min(100, Math.round((elapsed / totalMs) * 100));
+  }
+
+  /** 根据百分比返回 CSS class */
+  function slaBadgeClass(pct) {
+    if (pct >= 80) return 'sla-red';
+    if (pct >= 50) return 'sla-yellow';
+    return 'sla-green';
+  }
+
+  /** 渲染 SLA 百分比徽章 HTML */
+  function slaBadgeHtml(ticket) {
+    const pct = slaPercent(ticket);
+    const cls = slaBadgeClass(pct);
+    return `<span class="sla-percent-badge ${cls}">${pct}%</span>`;
+  }
+
   function actionButton(label, action, extra = '') {
     return `<button class="${extra || 'small-button'}" data-action="${escapeHtml(action)}">${escapeHtml(label)}</button>`;
   }
@@ -1244,12 +1284,13 @@
         : '';
       lastDivider = messageDay;
 
-      const senderClass = message.senderType === 'USER' ? 'user' : message.senderType === 'SYSTEM' ? 'system' : 'assistant';
-      const senderLabel = message.senderType === 'USER'
-        ? (isSupportRole() ? '用户' : currentUser().displayName)
-        : message.senderType === 'SYSTEM' ? '系统'
+      const isMyMessage = message.senderId === currentUser().userId;
+      const senderClass = message.senderType === 'SYSTEM' ? 'system' : isMyMessage ? 'user' : 'assistant';
+      const senderLabel = message.senderType === 'SYSTEM' ? '系统'
+        : message.senderType === 'USER' ? (message.senderDisplayName || '用户')
         : (message.senderDisplayName || '智能助手');
-      const avatar = message.senderType === 'USER' ? (isSupportRole() ? '客' : '我') : message.senderType === 'SYSTEM' ? '系' : '助';
+      const avatar = message.senderType === 'SYSTEM' ? '系'
+        : (message.senderDisplayName || (message.senderType === 'USER' ? '用户' : '助')).slice(0, 1);
 
       return `
         ${divider}
@@ -1492,9 +1533,15 @@
   }
 
   function serviceDeskTicketRow(ticket) {
+    const suspendLabel = ticket.isSuspended ? '<span class="suspend-label">挂起</span>' : '';
+    const slaHtml = slaBadgeHtml(ticket);
     return `
       <button class="service-desk-ticket" data-action="open-ticket" data-ticket-id="${escapeHtml(ticket.ticketId)}">
-        <span class="service-desk-ticket-no">${escapeHtml(ticket.ticketNo)}</span>
+        <span class="service-desk-ticket-no">
+          ${suspendLabel}
+          <span class="ticket-no-text">${escapeHtml(ticket.ticketNo)}</span>
+          ${slaHtml}
+        </span>
         <span class="service-desk-ticket-main">
           <strong>${escapeHtml(ticket.title)}</strong>
           <small>${escapeHtml(ticket.requester.displayName)} · ${escapeHtml(ticket.requester.departmentName)}</small>
@@ -1526,14 +1573,14 @@
           <div class="support-board-nav-right">
             <span class="status-chip ok">${escapeHtml(String(supportDraftTickets().length))} 条草稿</span>
             <span class="status-chip info">${escapeHtml(String(supportMineTickets().length))} 条待我处理</span>
-            <button class="ghost-button" data-action="support-tab" data-tab="chat">消息</button>
+            <button class="ghost-button" data-action="open-user-portal-messages">消息</button>
           </div>
         </div>
 
         <section class="service-desk-split">
           <article class="panel service-desk-panel">
             <header class="service-desk-panel-header">
-              <div><h2>草稿箱</h2><p>用户提交的未受理新工单</p></div>
+              <div><h2>草稿箱</h2><p>未受理新工单或用户重开的工单</p></div>
               <span class="service-desk-count">${escapeHtml(String(drafts.length))}</span>
             </header>
             <div class="service-desk-scroll">
@@ -1613,8 +1660,8 @@
     const queue = DATA.tickets.filter((ticket) => ['PENDING_ACCEPTANCE', 'REOPENED'].includes(ticket.status)).slice(0, 4).map((ticket) => `
       <div class="queue-item">
         <div>
-          <div class="queue-title"><span>${escapeHtml(ticket.title)}</span></div>
-          <div class="queue-meta">${escapeHtml(ticket.ticketNo)} · ${escapeHtml(ticket.requester.displayName)} · ${escapeHtml(ticket.businessLineCode)}</div>
+          <div class="queue-title"><span>${ticket.isSuspended ? '<span class="suspend-label">挂起</span> ' : ''}${escapeHtml(ticket.title)}</span></div>
+          <div class="queue-meta">${escapeHtml(ticket.ticketNo)} ${slaBadgeHtml(ticket)} · ${escapeHtml(ticket.requester.displayName)} · ${escapeHtml(ticket.businessLineCode)}</div>
         </div>
         <div class="queue-actions">
           <span class="status-tag ${statusClass(ticket.status)}">${escapeHtml(ticket.status)}</span>
@@ -2388,8 +2435,8 @@
     const queue = DATA.tickets.filter((ticket) => ['PENDING_ACCEPTANCE', 'REOPENED'].includes(ticket.status)).slice(0, 4).map((ticket) => `
       <div class="queue-item">
         <div>
-          <div class="queue-title"><span>${escapeHtml(ticket.title)}</span></div>
-          <div class="queue-meta">${escapeHtml(ticket.ticketNo)} · ${escapeHtml(ticket.requester.displayName)} · ${escapeHtml(ticket.businessLineCode)}</div>
+          <div class="queue-title"><span>${ticket.isSuspended ? '<span class="suspend-label">挂起</span> ' : ''}${escapeHtml(ticket.title)}</span></div>
+          <div class="queue-meta">${escapeHtml(ticket.ticketNo)} ${slaBadgeHtml(ticket)} · ${escapeHtml(ticket.requester.displayName)} · ${escapeHtml(ticket.businessLineCode)}</div>
         </div>
         <div class="queue-actions">
           <span class="status-tag ${statusClass(ticket.status)}">${escapeHtml(ticket.status)}</span>
@@ -2784,8 +2831,8 @@
   function renderSupportTicketDrawer(ticket) {
     const currentUserId = currentUser().userId;
     const isMine = ticket.assignee && ticket.assignee.userId === currentUserId;
-    const canAccept = ['PENDING_ACCEPTANCE', 'REOPENED'].includes(ticket.status) && !ticket.assignee;
-    const canEdit = ['IN_PROGRESS', 'REOPENED'].includes(ticket.status) && isMine;
+    const canAccept = ticket.status === 'PENDING_ACCEPTANCE' || ticket.status === 'REOPENED';
+    const canEdit = ticket.status === 'IN_PROGRESS' && isMine;
     const canResolve = ticket.status === 'IN_PROGRESS' && isMine;
     const canClose = ticket.status === 'RESOLVED' && isMine;
     const canSuspend = ['IN_PROGRESS', 'REOPENED'].includes(ticket.status) && isMine;
@@ -2982,7 +3029,7 @@
     const isUser = isUserRole();
     const canAccept = !isUser && (ticket.status === 'PENDING_ACCEPTANCE' || ticket.status === 'REOPENED');
     const canClassify = !isUser && ['IN_PROGRESS', 'REOPENED'].includes(ticket.status);
-    const canResolve = !isUser && ticket.status === 'IN_PROGRESS';
+    const canResolve = !isUser && ['IN_PROGRESS', 'REOPENED'].includes(ticket.status);
     const canConfirm = isUser && ticket.status === 'PENDING_USER_CONFIRM';
     const canClose = !isUser && ticket.status === 'RESOLVED';
     const canRating = isUser && ['RESOLVED', 'CLOSED'].includes(ticket.status);
@@ -3381,30 +3428,33 @@
     return true;
   }
 
-  function toggleTicketSuspend(ticketId) {
+  async function toggleTicketSuspend(ticketId) {
     const ticket = DATA.tickets.find((item) => item.ticketId === ticketId);
     if (!ticket) return false;
-    const now = nowIso();
-    if (!ticket.isSuspended) {
-      const start = new Date(ticket.slaStartedAt || ticket.createdAt);
-      if (Number.isFinite(start.getTime())) {
-        ticket.slaAccumulatedMs = (Number(ticket.slaAccumulatedMs || 0) + Math.max(0, Date.now() - start.getTime()));
+    try {
+      const result = await apiPost('/api/v1/tickets/' + encodeURIComponent(ticketId) + '/suspend', { reason: '用户长时间未回复，工单超时挂起' });
+      ticket.isSuspended = result.isSuspended;
+      ticket.suspendedReason = result.suspendedReason || '';
+      ticket.suspendedAt = result.suspendedAt || null;
+      const now = nowIso();
+      if (ticket.isSuspended) {
+        const start = new Date(ticket.slaStartedAt || ticket.createdAt);
+        if (Number.isFinite(start.getTime())) {
+          ticket.slaAccumulatedMs = (Number(ticket.slaAccumulatedMs || 0) + Math.max(0, Date.now() - start.getTime()));
+        }
+        ticket.slaPausedAt = now;
+        appendTicketHistory(ticket, ticket.status, `挂起工单：${ticket.suspendedReason}`);
+      } else {
+        ticket.slaPausedAt = null;
+        ticket.slaStartedAt = now;
+        appendTicketHistory(ticket, ticket.status, '恢复工单计时');
       }
-      ticket.isSuspended = true;
-      ticket.suspendedAt = now;
-      ticket.suspendedReason = '用户长时间未回复，工单超时挂起';
-      ticket.slaPausedAt = now;
-      appendTicketHistory(ticket, ticket.status, `挂起工单：${ticket.suspendedReason}`);
-    } else {
-      ticket.isSuspended = false;
-      ticket.suspendedReason = '';
-      ticket.suspendedAt = null;
-      ticket.slaPausedAt = null;
-      ticket.slaStartedAt = now;
-      appendTicketHistory(ticket, ticket.status, '恢复工单计时');
+      showToast(ticket.isSuspended ? '工单已挂起' : '计时已恢复', ticket.isSuspended ? '等待用户回复，SLA 计时已暂停' : '工单继续处理', 'success');
+      return true;
+    } catch (error) {
+      showToast('操作失败', error.message, 'error');
+      return false;
     }
-    showToast(ticket.isSuspended ? '工单已挂起' : '计时已恢复', ticket.isSuspended ? '等待用户回复，SLA 计时已暂停' : '工单继续处理', 'success');
-    return true;
   }
 
   async function applySameLineTransfer(ticketId) {
@@ -3587,7 +3637,7 @@
     return true;
   }
 
-  function saveRating(ticket) {
+  async function saveRating(ticket) {
     const score = Number(state.draft.ratingScore || 0);
     const commentField = document.getElementById('ratingComment');
     const comment = commentField ? String(commentField.value || '').trim() : state.draft.ratingComment.trim();
@@ -3595,17 +3645,19 @@
       showToast('评价失败', 'VALIDATION_ERROR · score 必须为 1-5', 'error');
       return false;
     }
-    ticket.rating = {
-      score,
-      comment
-    };
-    ticket.auditEvents.unshift({
-      action: 'TicketRated',
-      occurredAt: nowIso(),
-      actor: currentUser().userId
-    });
-    showToast('评价成功', '工单评价已提交', 'success');
-    return true;
+    try {
+      await apiPost('/api/v1/tickets/' + encodeURIComponent(ticket.ticketId) + '/rating', {
+        score,
+        comment: comment || null,
+        tags: null
+      });
+      ticket.rating = { score, comment };
+      showToast('评价成功', '工单评价已提交', 'success');
+      return true;
+    } catch (error) {
+      showToast('评价失败', error.message, 'error');
+      return false;
+    }
   }
 
   function saveDictItem(mode, itemId) {
@@ -3808,6 +3860,11 @@
     if (action === 'support-tab') {
       state.supportTab = target.dataset.tab || 'desk';
       render();
+      return;
+    }
+
+    if (action === 'open-user-portal-messages') {
+      window.open('user-portal.html?view=MESSAGES', '_blank');
       return;
     }
 
@@ -4033,9 +4090,11 @@
         showToast('无权操作', 'ROLE_FORBIDDEN', 'error');
         return;
       }
-      if (saveRating(ticket)) {
-        render();
-      }
+      saveRating(ticket).then((ok) => {
+        if (ok && ticket.ticketId) {
+          openTicketReal(ticket.ticketId);
+        }
+      });
       return;
     }
 
@@ -4239,6 +4298,7 @@
     Promise.all([loadRealTickets(), loadRealDictionaries(), loadRealSessions()]).finally(() => {
       renderStart();
       renderOverlayWrapper();
+      startTicketPolling();
     });
   }
 

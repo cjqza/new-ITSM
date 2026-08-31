@@ -28,6 +28,17 @@ public class OutboxRelayEventListener {
         if (sessionId == null || sessionId.isBlank()) {
             return;
         }
+        if ("MESSAGE_SENT".equals(event.eventType())) {
+            // 把消息详情一起广播，前端可直接追加无需再请求
+            Map<String, Object> payload = jsonSupport.readValue(event.payloadJson(), new TypeReference<Map<String, Object>>() {
+            });
+            if (payload != null) {
+                payload.put("type", event.eventType());
+                payload.put("sessionId", sessionId);
+                chatWebSocketHandler.broadcast(sessionId, payload);
+                return;
+            }
+        }
         chatWebSocketHandler.broadcast(sessionId, Map.of(
                 "type", event.eventType(),
                 "sessionId", sessionId));

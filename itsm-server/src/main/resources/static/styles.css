@@ -1490,6 +1490,13 @@ a {
   box-shadow: -12px 0 30px rgba(18, 43, 67, 0.16);
 }
 
+.drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .drawer-header {
   display: flex;
   align-items: flex-start;
@@ -3361,9 +3368,59 @@ a {
 
 .service-desk-ticket-no {
   grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.service-desk-ticket-no .ticket-no-text {
   color: var(--blue);
   font-size: 11px;
   font-weight: 700;
+}
+
+.service-desk-ticket-no .suspend-label,
+.queue-title .suspend-label {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-right: 3px;
+}
+
+.sla-percent-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid;
+  vertical-align: middle;
+}
+
+.sla-percent-badge.sla-green {
+  border-color: #22c55e;
+  background: #22c55e;
+  color: #fff;
+}
+
+.sla-percent-badge.sla-yellow {
+  border-color: #f59e0b;
+  background: #f59e0b;
+  color: #fff;
+}
+
+.sla-percent-badge.sla-red {
+  border-color: #ef4444;
+  background: #ef4444;
+  color: #fff;
 }
 
 .service-desk-ticket-main {

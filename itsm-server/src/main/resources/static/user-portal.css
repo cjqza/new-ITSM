@@ -372,6 +372,31 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .whale-bar-row.distribution { grid-template-columns: 110px minmax(0, 1fr); }
 .unresolved-panel { margin-bottom: 4px; }
 
+.whale-rating-body { padding: 16px 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; background: #fbfdff; }
+.whale-agent-rating { padding: 13px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.whale-agent-rating-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.whale-agent-rating-head strong { color: #21344a; font-size: 14px; }
+.whale-avg-score { padding: 3px 8px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.whale-agent-rating-stars { margin-top: 8px; color: #e6a23c; font-size: 18px; letter-spacing: 2px; }
+.whale-agent-rating-meta { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.whale-star-breakdown { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.whale-star-breakdown span { padding: 2px 7px; border-radius: 4px; background: #f1f5f9; color: #66768a; font-size: 11px; }
+
+.whale-rating-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+.whale-rating-button { min-width: 56px; padding: 7px 11px; border: 1px solid #dce5ee; border-radius: 6px; background: #fff; color: #51667d; font-size: 12px; cursor: pointer; }
+.whale-rating-button.active { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+
+.whale-rated-list { padding: 6px 18px 16px; background: #fbfdff; }
+.whale-rated-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.whale-rated-item:last-child { border-bottom: 0; }
+.whale-rated-main { display: flex; align-items: center; gap: 10px; }
+.whale-rated-main strong { color: var(--blue); font-size: 12px; white-space: nowrap; }
+.whale-rated-main > span { color: #33475c; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.whale-rated-stars { margin-left: auto; color: #e6a23c; font-size: 13px; white-space: nowrap; }
+.whale-rated-meta { display: flex; align-items: center; gap: 14px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.whale-rated-meta time { color: var(--muted-2); }
+.whale-rated-comment { margin-top: 8px; padding: 8px 10px; border-left: 3px solid #9bbce8; background: #f4f8fe; color: #4c5d72; font-size: 12px; line-height: 1.55; }
+
 .status-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px; border-radius: 4px; font-size: 12px; }
 .status-chip.ok { background: var(--green-soft); color: #23733a; }
 .status-chip.info { background: var(--blue-soft); color: var(--blue); }
@@ -522,6 +547,35 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .rating-stars { display: flex; gap: 6px; }
 .rating-star { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafc; color: #33475c; font-weight: 700; cursor: pointer; }
 .rating-star.selected { background: #2563eb; border-color: #2563eb; color: #fff; }
+.ticket-rating-section { display: flex; flex-direction: column; gap: 10px; padding: 16px; background: #f0f7ff; border: 1px solid #d0e3f7; border-radius: 10px; margin-top: 12px; }
+.ticket-rating-section h4 { margin: 0; font-size: 14px; color: #1d2e40; }
+.ticket-rating-rated { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; margin-top: 12px; color: #166534; font-weight: 600; }
+
+/* 系统消息 */
+.chat-message.system { justify-content: center; }
+.chat-message.system .message-body { max-width: 90%; }
+.system-bubble { background: #fef3c7 !important; border: 1px solid #fcd34d; color: #92400e; font-size: 13px; text-align: center; border-radius: 8px; padding: 8px 14px; }
+
+/* 群聊内嵌评价/确认卡片 */
+.inline-rating-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; margin: 10px 16px 6px; background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 12px; }
+.inline-rating-card.rated { background: #f0fdf4; border-color: #bbf7d0; }
+.inline-rating-head { display: flex; flex-direction: column; gap: 2px; }
+.inline-rating-head strong { font-size: 14px; color: #1d2e40; }
+.inline-rating-head span { font-size: 12px; color: #52606d; }
+.inline-rating-actions { display: flex; gap: 8px; }
+.inline-rating-form { display: flex; flex-direction: column; gap: 10px; }
+.inline-rating-form .rating-stars { display: flex; gap: 6px; }
+.inline-rating-form .rating-star { width: 36px; height: 36px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; font-size: 16px; cursor: pointer; transition: all 0.15s; }
+.inline-rating-form .rating-star:hover,
+.inline-rating-form .rating-star.selected { background: #fbbf24; border-color: #f59e0b; color: #fff; }
+
+/* 归档会话提示 */
+.archived-notice { display: flex; align-items: center; justify-content: center; padding: 12px 16px; background: #f8fafc; border-top: 1px solid var(--line); color: #94a3b8; font-size: 13px; }
+
+/* 工单挂起提示 */
+.suspend-banner { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; margin: 0 16px 6px; background: #f59e0b; color: #fff; border-radius: 8px; font-size: 13px; }
+.suspend-banner strong { font-size: 14px; }
+.suspend-banner span { font-size: 12px; opacity: 0.9; }
 
 /* 审批列表 */
 .approval-list { display: flex; flex-direction: column; gap: 10px; }

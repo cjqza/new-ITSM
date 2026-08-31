@@ -93,4 +93,14 @@ public class TicketController extends ControllerSupport {
                                                            HttpServletRequest httpServletRequest) {
         return ok(ticketService.rate(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
     }
+
+    @Operation(summary = "工单挂起/恢复", description = "客服切换工单挂起状态，暂停/恢复 SLA 计时")
+    @PostMapping("/{ticketId}/suspend")
+    public ApiResponse<TicketDtos.SuspendTicketResponse> toggleSuspend(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+                                                                       @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                                       @RequestBody(required = false) TicketDtos.SuspendTicketRequest request,
+                                                                       HttpServletRequest httpServletRequest) {
+        if (request == null) request = new TicketDtos.SuspendTicketRequest(null);
+        return ok(ticketService.toggleSuspend(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
+    }
 }

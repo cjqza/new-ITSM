@@ -8,12 +8,14 @@ import com.cenziang.itsmcommon.api.ErrorCode;
 import com.cenziang.itsmcommon.api.PageResponse;
 import com.cenziang.itsmpojo.dto.ConversationDtos;
 import com.cenziang.itsmpojo.entity.AgentDecisionEntity;
+import com.cenziang.itsmpojo.entity.AppUserEntity;
 import com.cenziang.itsmpojo.entity.ConversationMessageEntity;
 import com.cenziang.itsmpojo.entity.ConversationParticipantEntity;
 import com.cenziang.itsmpojo.entity.ConversationSessionEntity;
 import com.cenziang.itsmserver.application.RequestContext;
 import com.cenziang.itsmserver.infrastructure.JsonSupport;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.AgentDecisionMapper;
+import com.cenziang.itsmserver.infrastructure.persistence.mapper.AppUserMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationMessageMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationParticipantMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationSessionMapper;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,6 +43,7 @@ public class ConversationService {
     private final ConversationMessageMapper messageMapper;
     private final ConversationParticipantMapper participantMapper;
     private final AgentDecisionMapper decisionMapper;
+    private final AppUserMapper appUserMapper;
     private final JsonSupport jsonSupport;
     private final ChatCacheService chatCacheService;
     private final OutboxService outboxService;
@@ -48,6 +52,7 @@ public class ConversationService {
                                ConversationMessageMapper messageMapper,
                                ConversationParticipantMapper participantMapper,
                                AgentDecisionMapper decisionMapper,
+                               AppUserMapper appUserMapper,
                                JsonSupport jsonSupport,
                                ChatCacheService chatCacheService,
                                OutboxService outboxService) {
@@ -55,6 +60,7 @@ public class ConversationService {
         this.messageMapper = messageMapper;
         this.participantMapper = participantMapper;
         this.decisionMapper = decisionMapper;
+        this.appUserMapper = appUserMapper;
         this.jsonSupport = jsonSupport;
         this.chatCacheService = chatCacheService;
         this.outboxService = outboxService;
@@ -76,6 +82,7 @@ public class ConversationService {
                 .setSubject(request.subject())
                 .setStatus("ACTIVE");
         sessionMapper.insert(session);
+        ensureParticipant(context.tenantId(), session.getSessionId(), context.userId(), "USER");
         return new ConversationDtos.SessionCreateResponse(
                 session.getSessionId(), session.getStatus(), null, session.getCreatedAt(), null);
     }
@@ -162,10 +169,10 @@ public class ConversationService {
             throw new BusinessException(ErrorCode.DATA_SCOPE_FORBIDDEN);
         }
         List<ConversationDtos.ParticipantView> participants = listParticipants(context.tenantId(), sessionId);
-        Map<String, String> supportAlias = new HashMap<>();
+        Map<String, String> senderNameMap = new HashMap<>();
         for (ConversationDtos.ParticipantView p : participants) {
-            if ("SUPPORT".equals(p.participantType())) {
-                supportAlias.put(p.userId(), p.displayAlias());
+            if (p.displayAlias() != null) {
+                senderNameMap.put(p.userId(), p.displayAlias());
             }
         }
         List<ConversationDtos.SessionMessageItem> messages = chatCacheService.getOrLoad(sessionId, () -> {
@@ -179,7 +186,7 @@ public class ConversationService {
             return page.getRecords().stream()
                     .map(m -> new ConversationDtos.SessionMessageItem(
                             m.getMessageId(), m.getSenderType(), m.getSenderId(),
-                            senderDisplayName(m.getSenderType(), m.getSenderId(), supportAlias),
+                            senderDisplayName(m.getSenderType(), m.getSenderId(), senderNameMap),
                             m.getContent(), m.getCreatedAt()))
                     .toList();
         });
@@ -222,7 +229,9 @@ public class ConversationService {
         }
 
         String senderType = isOwner ? "USER" : (isSupport ? "SUPPORT" : "AGENT");
-        if (!isOwner) {
+        if (isOwner) {
+            ensureParticipant(context.tenantId(), sessionId, context.userId(), "USER");
+        } else {
             ensureParticipant(context.tenantId(), sessionId, context.userId(), "SUPPORT");
         }
 
@@ -241,8 +250,22 @@ public class ConversationService {
                 .setSummary(request.content().length() > 100 ? request.content().substring(0, 100) : request.content())
                 .setLastMessageAt(LocalDateTime.now()));
         chatCacheService.evict(sessionId);
+        // 查发送者姓名，供 WebSocket 广播直接使用
+        String senderName = null;
+        if (!"AGENT".equals(senderType) && !"SYSTEM".equals(senderType)) {
+            AppUserEntity sender = appUserMapper.selectOne(
+                    new LambdaQueryWrapper<AppUserEntity>()
+                            .eq(AppUserEntity::getTenantId, context.tenantId())
+                            .eq(AppUserEntity::getUserId, context.userId())
+                            .select(AppUserEntity::getDisplayName));
+            if (sender != null) senderName = sender.getDisplayName();
+        } else if ("AGENT".equals(senderType)) {
+            senderName = "IT助手";
+        }
         outboxService.publish(context.tenantId(), "MESSAGE_SENT", "CONVERSATION", sessionId,
-                Map.of("messageId", userMessage.getMessageId(), "senderType", senderType, "senderId", context.userId()));
+                Map.of("messageId", userMessage.getMessageId(), "senderType", senderType,
+                        "senderId", context.userId(), "content", request.content(),
+                        "senderDisplayName", senderName != null ? senderName : ""));
 
         return new ConversationDtos.SendMessageResponse(userMessage.getMessageId(), sessionId, "AGENT_PROCESSING", null, null, session.getStatus());
     }
@@ -295,6 +318,46 @@ public class ConversationService {
                 .eq(ConversationSessionEntity::getSessionId, sessionId)
                 .set(ConversationSessionEntity::getStatus, "ARCHIVED"));
         chatCacheService.evict(sessionId);
+    }
+
+    /**
+     * 将已归档的会话重新激活（工单重开时调用）。
+     */
+    public void reactivateSession(String tenantId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        sessionMapper.update(null, new LambdaUpdateWrapper<ConversationSessionEntity>()
+                .eq(ConversationSessionEntity::getTenantId, tenantId)
+                .eq(ConversationSessionEntity::getSessionId, sessionId)
+                .set(ConversationSessionEntity::getStatus, "ACTIVE"));
+        chatCacheService.evict(sessionId);
+    }
+
+    /**
+     * 发送系统消息（无操作者上下文，供工单流转等自动通知使用）。
+     */
+    @Transactional
+    public void sendSystemMessage(String tenantId, String sessionId, String content) {
+        if (sessionId == null || sessionId.isBlank() || content == null || content.isBlank()) {
+            return;
+        }
+        ConversationMessageEntity msg = new ConversationMessageEntity()
+                .setMessageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
+                .setTenantId(tenantId)
+                .setSessionId(sessionId)
+                .setSenderType("SYSTEM")
+                .setSenderId("SYSTEM")
+                .setClientMessageId("sys_" + UUID.randomUUID().toString().replace("-", ""))
+                .setContent(content);
+        messageMapper.insert(msg);
+        sessionMapper.updateById(new ConversationSessionEntity()
+                .setSessionId(sessionId)
+                .setSummary(content.length() > 100 ? content.substring(0, 100) : content)
+                .setLastMessageAt(LocalDateTime.now()));
+        chatCacheService.evict(sessionId);
+        outboxService.publish(tenantId, "MESSAGE_SENT", "CONVERSATION", sessionId,
+                Map.of("messageId", msg.getMessageId(), "senderType", "SYSTEM", "senderId", "SYSTEM", "content", content));
     }
 
     private ConversationSessionEntity requireSession(String tenantId, String sessionId) {
@@ -368,26 +431,30 @@ public class ConversationService {
                         .eq(ConversationParticipantEntity::getTenantId, tenantId)
                         .eq(ConversationParticipantEntity::getSessionId, sessionId)
                         .orderByAsc(ConversationParticipantEntity::getJoinedAt));
-        int supportIndex = 0;
+        // 预加载所有参与者的真实姓名
+        Set<String> allUserIds = rows.stream()
+                .map(ConversationParticipantEntity::getUserId)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<String, String> realNameMap = new HashMap<>();
+        if (!allUserIds.isEmpty()) {
+            appUserMapper.selectList(
+                    new LambdaQueryWrapper<AppUserEntity>()
+                            .eq(AppUserEntity::getTenantId, tenantId)
+                            .in(AppUserEntity::getUserId, allUserIds))
+                    .forEach(u -> realNameMap.put(u.getUserId(), u.getDisplayName()));
+        }
         List<ConversationDtos.ParticipantView> result = new ArrayList<>();
         for (ConversationParticipantEntity p : rows) {
-            String alias = null;
-            if ("SUPPORT".equals(p.getParticipantType())) {
-                supportIndex++;
-                alias = "IT助手" + supportIndex + "号";
-            }
+            String alias = realNameMap.getOrDefault(p.getUserId(), null);
             result.add(new ConversationDtos.ParticipantView(p.getUserId(), p.getParticipantType(), alias));
         }
         return result;
     }
 
-    private String senderDisplayName(String senderType, String senderId, Map<String, String> supportAlias) {
-        if ("SUPPORT".equals(senderType)) {
-            return supportAlias.getOrDefault(senderId, "IT客服");
-        }
+    private String senderDisplayName(String senderType, String senderId, Map<String, String> nameMap) {
         if ("AGENT".equals(senderType)) {
             return "IT助手";
         }
-        return null;
+        return nameMap.getOrDefault(senderId, null);
     }
 }
