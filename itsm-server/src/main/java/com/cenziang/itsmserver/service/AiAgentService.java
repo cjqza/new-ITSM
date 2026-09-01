@@ -8,8 +8,11 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 
 
@@ -36,6 +39,14 @@ public class AiAgentService {
         this.jsonSupport = jsonSupport;
         this.restClient = RestClient.builder()
                 .baseUrl(properties.getUrl())
+                .requestFactory(new org.springframework.http.client.SimpleClientHttpRequestFactory() {{
+                    setConnectTimeout((int) Math.min(Integer.MAX_VALUE, properties.getTimeoutMs()));
+                    setReadTimeout((int) Math.min(Integer.MAX_VALUE, properties.getTimeoutMs()));
+                }})
+                .defaultHeaders(headers -> {
+                    headers.setContentType(MediaType.APPLICATION_JSON);
+                    headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                })
                 .build();
     }
 
@@ -53,14 +64,16 @@ public class AiAgentService {
 
         if (properties.isUseExternal()) {
             try {
-                Map<String, Object> body = Map.of(
+                String requestJson = jsonSupport.write(Map.of(
                         "message", userMessage,
                         "history", chatHistory != null ? chatHistory : List.of()
-                );
+                ));
+                log.info("Calling AI Agent: url={}, bodyLen={}", properties.getUrl(), requestJson.length());
                 String responseJson = restClient.post()
                         .uri("/api/v1/ai/chat")
-                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        .body(jsonSupport.write(body))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(requestJson.getBytes(StandardCharsets.UTF_8))
                         .retrieve()
                         .body(String.class);
                 AiAgentResponse resp = jsonSupport.readValue(responseJson, AiAgentResponse.class);

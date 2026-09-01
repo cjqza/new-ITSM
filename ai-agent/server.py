@@ -64,7 +64,7 @@ class ChatResponse(BaseModel):
     handoffReason: str
 
 # ---------- Routes ----------
-@app.get(/)
+@app.get("/")
 async def root():
     return {"status": "ok", "name": "ITSM AI Agent"}
 
