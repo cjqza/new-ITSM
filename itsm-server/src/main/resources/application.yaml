@@ -63,7 +63,7 @@ itsm:
   ai-agent:
     enabled: true
     use-external: true
-    url: http://localhost:8090
+    url: http://localhost:8092
     timeout-ms: 30000
 
 springdoc:
