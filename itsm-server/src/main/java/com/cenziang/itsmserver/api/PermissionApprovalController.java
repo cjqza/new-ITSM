@@ -54,7 +54,7 @@ public class PermissionApprovalController extends ControllerSupport {
     @Operation(summary = "批准申请", description = "管理员批准权限申请并授予对应角色")
     @PostMapping("/api/v1/admin/permissions/requests/{requestId}/approve")
     public ApiResponse<PermissionRequestDtos.PermissionRequestResponse> approve(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                                @Parameter(description = "申请 ID", required = true) @PathVariable String requestId,
+                                                                                @Parameter(description = "申请 ID", required = true) @PathVariable("requestId") String requestId,
                                                                                 HttpServletRequest httpServletRequest) {
         return ok(approvalService.approve(context(httpServletRequest, tenantId), requestId), httpServletRequest);
     }
@@ -62,7 +62,7 @@ public class PermissionApprovalController extends ControllerSupport {
     @Operation(summary = "驳回申请", description = "管理员驳回权限申请")
     @PostMapping("/api/v1/admin/permissions/requests/{requestId}/reject")
     public ApiResponse<PermissionRequestDtos.PermissionRequestResponse> reject(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                               @Parameter(description = "申请 ID", required = true) @PathVariable String requestId,
+                                                                               @Parameter(description = "申请 ID", required = true) @PathVariable("requestId") String requestId,
                                                                                HttpServletRequest httpServletRequest) {
         return ok(approvalService.reject(context(httpServletRequest, tenantId), requestId), httpServletRequest);
     }

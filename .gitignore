@@ -41,3 +41,19 @@ build/
 
 ### Runtime logs ###
 logs/
+
+ai-agent/.env
+
+### Python ###
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+*.whl
+
+### Env files ###
+.env
+.env.local
+.env.*.local

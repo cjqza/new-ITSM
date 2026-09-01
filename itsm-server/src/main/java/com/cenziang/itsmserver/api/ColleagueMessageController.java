@@ -60,7 +60,7 @@ public class ColleagueMessageController extends ControllerSupport {
     @Operation(summary = "标记与某同事的消息为已读")
     @PostMapping("/{peerUserId}/read")
     public ApiResponse<Void> markRead(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                      @Parameter(description = "对方用户主键", required = true) @PathVariable String peerUserId,
+                                      @Parameter(description = "对方用户主键", required = true) @PathVariable("peerUserId") String peerUserId,
                                       HttpServletRequest httpServletRequest) {
         colleagueMessageService.markRead(context(httpServletRequest, tenantId), peerUserId);
         return ok(null, httpServletRequest);

@@ -60,6 +60,11 @@ itsm:
     cache-ttl-minutes: 30
   ticket:
     retention-days: 30
+  ai-agent:
+    enabled: true
+    use-external: true
+    url: http://localhost:8090
+    timeout-ms: 30000
 
 springdoc:
   api-docs:

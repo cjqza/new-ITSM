@@ -1,62 +1,100 @@
 # ITSM 桌面工单处理系统
 
-基于 Spring Boot 4 的 IT 服务管理（ITSM）系统，支持用户自助提单、客服受理处理、工单状态流转、评价闭环等核心功能。
+基于 Spring Boot + LangGraph AI 的智能 IT 服务管理平台，支持 AI 自动接待、工单全生命周期管理、多角色协作和满意度评价闭环。
 
 ## 技术栈
 
-- **后端框架**: Spring Boot 4.1.1 + Java 17
-- **持久层**: MyBatis-Plus 3.5.17 + Flyway 数据库版本管理
-- **数据库**: MySQL 8
-- **缓存**: Redis
-- **消息队列**: RabbitMQ (Spring AMQP)
-- **安全认证**: Spring Security + JWT (jjwt 0.12.6)
-- **实时通信**: WebSocket
-- **API 文档**: Knife4j + SpringDoc OpenAPI 3
-- **工具库**: Hutool、Lombok、Pinyin4j
+### Java 后端
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Spring Boot | 3.4.5 | 应用框架 |
+| Java | 17 | 开发语言 |
+| MyBatis-Plus | 3.5.17 | 持久层框架 |
+| Flyway | - | 数据库版本管理 |
+| MySQL | 8.0 | 主数据库 |
+| Redis | 6+ | 缓存、幂等键、短期状态 |
+| RabbitMQ | 3.8+ | 消息队列（可选） |
+| Spring Security + JWT | jjwt 0.12.6 | 安全认证 |
+| WebSocket | - | 实时消息推送 |
+| Knife4j + SpringDoc | - | API 文档 |
+| Hutool / Lombok / Pinyin4j | - | 工具库 |
+
+### Python AI Agent
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Python | 3.12+ | 开发语言 |
+| FastAPI | 0.115+ | Web 框架 |
+| LangGraph | 0.2+ | AI 工作流编排 |
+| LangChain | 0.3+ | LLM 应用框架 |
+| DashScope (通义千问) | - | 大模型 API |
 
 ## 项目结构
 
 ```
-itsm/
-├── itsm-common/          # 通用基础设施：统一响应、错误码、异常处理、分页封装
-├── itsm-pojo/            # 领域模型：实体、DTO、枚举
-├── itsm-server/          # 主应用：Controller、Service、Mapper、配置、数据库迁移
-│   ├── src/main/java/com/cenziang/itsmserver/
-│   │   ├── api/          # REST 控制器
-│   │   ├── config/       # Spring 配置（安全、MyBatis、WebSocket、Flyway 等）
-│   │   ├── domain/       # 领域对象（Auth、Tenant、Role 等）
-│   │   ├── dto/          # 请求/响应 DTO
-│   │   ├── service/      # 业务逻辑层
-│   │   ├── repository/   # 数据访问层
-│   │   ├── infrastructure/ # 基础设施（审计、持久化 Mapper）
-│   │   └── websocket/    # WebSocket 处理
-│   └── src/main/resources/
-│       ├── db/migration/ # Flyway SQL 迁移脚本（V1~V9）
-│       └── static/       # 前端静态页面
-└── pom.xml               # 父 POM
+ITSM/
+├── pom.xml                   # Maven 父 POM
+├── itsm-common/              # 通用基础设施：统一响应、错误码、异常处理、分页封装
+├── itsm-pojo/                # 领域模型：实体、DTO、枚举、租户隔离基类
+├── itsm-server/              # 主应用：Controller、Service、Mapper、配置、数据库迁移
+│   └── src/main/
+│       ├── java/com/cenziang/itsmserver/
+│       │   ├── api/          # REST 控制器（17 个）
+│       │   ├── config/       # Spring 配置（安全、MyBatis、WebSocket、Flyway 等）
+│       │   ├── domain/       # 领域对象（Auth、Tenant、Role 等）
+│       │   ├── dto/          # 请求/响应 DTO
+│       │   ├── service/      # 业务逻辑层（20+ 个 Service）
+│       │   ├── repository/   # 数据访问层
+│       │   ├── infrastructure/ # 基础设施（审计、持久化 Mapper）
+│       │   └── websocket/    # WebSocket 处理
+│       └── resources/
+│           ├── db/migration/ # Flyway SQL 迁移脚本（V1~V9）
+│           └── static/       # 前端静态页面
+├── ai-agent/                 # Python AI Agent 服务
+│   ├── agent.py              # LangGraph 工作流定义（分类→诊断→决策）
+│   ├── server.py             # FastAPI 服务入口
+│   ├── requirements.txt      # Python 依赖
+│   └── start.ps1             # 启动脚本
+├── UI设计/                   # UI 信息架构与原型
+├── 接口文档/                 # 核心接口文档
+├── 计划书/                   # 项目计划书
+└── 产品说明书/               # 最终产品说明书
 ```
 
 ## 核心功能
 
+### AI 智能接待
+
+- AI Agent 基于 LangGraph 三节点工作流：分类（classify）→ 诊断（diagnose）→ 决策（decide）
+- 自动识别 6 类问题（系统/软件/账号/网络/外设/其他），生成结构化诊断报告
+- 置信度低于 0.5 或涉及硬件故障等场景自动转人工
+- 通过 HTTP 集成 Java 后端，AI 不可用时自动降级
+
 ### 用户端
-- 手机号 + 验证码注册登录
-- 在线提单（选择业务线、描述问题）
-- 查看工单状态和处理进度
-- 工单评价与满意度反馈
+
+- 手机号注册/登录，与 AI 智能客服实时聊天
+- 主动或 AI 触发转人工，自动创建工单
+- 查看工单状态和处理进度，确认解决结果或重开
+- 服务评价与满意度反馈（1~5 分）
 
 ### 客服端
-- 工单队列管理与受理
-- 工单分类（管理单元、症状、原因、解决方法）
-- 提交解决结果、关闭工单
-- 同事消息与内部沟通
+
+- 工单台式工作面板（待处理 / 即将超时 / 草稿箱 / 待本岗位处理）
+- 受理工单、补齐分类（管理单元、症状、原因、解决方法）
+- 提交解决结果，用户确认后关闭工单
+
+### 管理员端
+
+- 字典管理（业务线、管理单元、症状、原因、解决方法、评价标签）
+- 权限查询、员工管理、配置审计
 
 ### 通用能力
-- 多租户隔离
-- RBAC 权限控制（角色、菜单、按钮、数据范围）
-- 工单状态机流转（新建 -> 待受理 -> 处理中 -> 待确认 -> 已解决 -> 已关闭 / 重开）
-- 字典管理（业务线、管理单元、症状、原因等可配置项）
-- 操作审计日志
-- 幂等写入保障
+
+- 多租户数据隔离
+- RBAC 权限控制（功能权限 / 菜单权限 / 数据权限）
+- 工单状态机流转（7 个状态）
+- 操作审计日志、幂等写入保障
 
 ## 工单状态流转
 
@@ -74,12 +112,20 @@ itsm/
 - Maven 3.9+
 - MySQL 8.0+
 - Redis 6+
-- RabbitMQ 3.8+（可选，异步事件用）
+- Python 3.12+（AI Agent）
 
-### 数据库配置
+### 启动 Java 后端
 
-默认连接配置在 `itsm/itsm-server/src/main/resources/application.yaml`：
+```bash
+# 构建项目
+mvn clean install
 
+# 启动应用（数据库表通过 Flyway 自动迁移）
+cd itsm-server
+mvn spring-boot:run
+```
+
+数据库默认连接配置在 `itsm-server/src/main/resources/application.yaml`：
 ```yaml
 spring:
   datasource:
@@ -88,32 +134,61 @@ spring:
     password: 1234
 ```
 
-数据库表通过 Flyway 自动迁移，首次启动时会自动创建。
-
-### 启动应用
+### 启动 Python AI Agent
 
 ```bash
-cd itsm
-mvn clean install
-cd itsm-server
-mvn spring-boot:run
+cd ai-agent
+pip install -r requirements.txt
+
+# 配置环境变量
+export DASHSCOPE_API_KEY="your-api-key"
+
+# 启动服务
+python server.py
 ```
 
-应用启动后访问：
-- 前端页面: http://localhost:8080
-- API 文档: http://localhost:8080/swagger-ui.html
-- Knife4j 文档: http://localhost:8080/doc.html
+或使用 PowerShell：
+```powershell
+.\start.ps1
+```
+
+### 访问系统
+
+| 服务 | 地址 |
+|------|------|
+| 前端页面 | http://localhost:8080 |
+| 用户端聊天 | http://localhost:8080/user-portal.html |
+| API 文档 (Swagger) | http://localhost:8080/swagger-ui.html |
+| API 文档 (Knife4j) | http://localhost:8080/doc.html |
+| AI Agent 健康检查 | http://localhost:8090/api/v1/ai/health |
 
 ### 默认账号
 
-系统首次启动会自动创建种子用户（可通过配置关闭）：
-- 登录名: `zhangsan`
-- 密码: `P@ssw0rd123`
-- 租户: `cza集团`
+- 登录名：`zhangsan`
+- 密码：`P@ssw0rd123`
+- 租户：`cza集团`
+
+## API 概览
+
+| 模块 | 路径前缀 | 说明 |
+|------|----------|------|
+| 认证 | `/api/v1/auth` | 登录、注册、令牌刷新、验证码 |
+| 工单 | `/api/v1/tickets` | 建单、查询、确认、重开 |
+| 客服工单 | `/api/v1/support/tickets` | 队列、受理、分类、解决、关闭 |
+| 会话 | `/api/v1/conversations` | 创建会话、发消息、转人工 |
+| Agent | `/api/v1/agent` | Agent 决策编排 |
+| 评价 | `/api/v1/ratings` | 工单评价提交与查询 |
+| 字典 | `/api/v1/admin/dictionaries` | 字典项查询、新增、更新、停用 |
+| 权限 | `/api/v1/permissions` | 角色权限管理 |
+| 员工 | `/api/v1/admin/employees` | 员工信息查询 |
+| 部门 | `/api/v1/admin/departments` | 部门信息管理 |
+| 通讯录 | `/api/v1/contacts` | 联系人查询 |
+| 同事消息 | `/api/v1/colleagues/messages` | 内部消息通信 |
+| AI Agent | `/api/v1/ai` | 智能对话、健康检查 |
 
 ## 数据库迁移
 
-项目使用 Flyway 管理数据库版本，迁移脚本位于 `itsm/itsm-server/src/main/resources/db/migration/`：
+使用 Flyway 管理数据库版本，迁移脚本位于 `itsm-server/src/main/resources/db/migration/`：
 
 | 版本 | 说明 |
 |------|------|
@@ -127,23 +202,9 @@ mvn spring-boot:run
 | V8 | 会话参与者表 |
 | V9 | 工单挂起功能 |
 
-## API 概览
-
-| 模块 | 路径前缀 | 说明 |
-|------|----------|------|
-| 认证 | `/api/auth` | 登录、注册、令牌刷新、验证码 |
-| 工单 | `/api/tickets` | 建单、查询、受理、解决、关闭、重开 |
-| 会话 | `/api/conversations` | 创建会话、发消息、查询历史 |
-| 评价 | `/api/ratings` | 工单评价提交与查询 |
-| 字典 | `/api/dictionaries` | 业务线、症状、原因等字典管理 |
-| 员工 | `/api/employees` | 员工信息查询 |
-| 部门 | `/api/departments` | 部门信息管理 |
-| 权限 | `/api/permissions` | 角色权限管理 |
-| 通讯录 | `/api/contacts` | 联系人查询 |
-| 同事消息 | `/api/colleague-messages` | 内部消息通信 |
-
 ## 项目文档
 
+- [产品说明书](./产品说明书/ITSM桌面工单处理系统最终产品说明书_V1.0.md)
 - [后端架构设计](./后端架构设计_v1.0.md)
 - [登录方案](./登录方案_v1.0.md)
 - [核心接口文档](./接口文档/ITSM一期核心接口文档_v1.0.md)

@@ -46,7 +46,7 @@ public class EmployeeController extends ControllerSupport {
     @Operation(summary = "修改员工账号", description = "修改员工的手机号、邮箱与部门")
     @PatchMapping("/{userId}")
     public ApiResponse<EmployeeDtos.EmployeeView> update(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                         @Parameter(description = "用户主键", required = true) @PathVariable String userId,
+                                                         @Parameter(description = "用户主键", required = true) @PathVariable("userId") String userId,
                                                          @Valid @RequestBody EmployeeDtos.EmployeeUpdateRequest request,
                                                          HttpServletRequest httpServletRequest) {
         return ok(employeeService.update(context(httpServletRequest, tenantId), userId, request), httpServletRequest);

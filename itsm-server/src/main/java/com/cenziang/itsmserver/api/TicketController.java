@@ -63,7 +63,7 @@ public class TicketController extends ControllerSupport {
     @Operation(summary = "工单详情", description = "返回工单核心字段、分类、状态历史和评价")
     @GetMapping("/{ticketId}")
     public ApiResponse<TicketDtos.TicketDetailResponse> detail(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                               @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                               @Parameter(description = "工单 ID", required = true) @PathVariable("ticketId") String ticketId,
                                                                HttpServletRequest httpServletRequest) {
         return ok(ticketService.detail(context(httpServletRequest, tenantId), ticketId), httpServletRequest);
     }
@@ -71,7 +71,7 @@ public class TicketController extends ControllerSupport {
     @Operation(summary = "用户确认解决", description = "用户确认客服处理结果，工单进入已解决")
     @PostMapping("/{ticketId}/confirm")
     public ApiResponse<TicketDtos.ConfirmTicketResponse> confirm(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                 @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                                 @Parameter(description = "工单 ID", required = true) @PathVariable("ticketId") String ticketId,
                                                                  HttpServletRequest httpServletRequest) {
         return ok(ticketService.confirm(context(httpServletRequest, tenantId), ticketId), httpServletRequest);
     }
@@ -79,7 +79,7 @@ public class TicketController extends ControllerSupport {
     @Operation(summary = "用户重开工单", description = "用户对结果不满意或问题复发时重新打开工单")
     @PostMapping("/{ticketId}/reopen")
     public ApiResponse<TicketDtos.ReopenTicketResponse> reopen(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                               @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                               @Parameter(description = "工单 ID", required = true) @PathVariable("ticketId") String ticketId,
                                                                @Valid @RequestBody TicketDtos.ReopenTicketRequest request,
                                                                HttpServletRequest httpServletRequest) {
         return ok(ticketService.reopen(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
@@ -88,7 +88,7 @@ public class TicketController extends ControllerSupport {
     @Operation(summary = "用户评价工单", description = "对已解决或已关闭工单提交 1-5 分评价")
     @PostMapping("/{ticketId}/rating")
     public ApiResponse<RatingDtos.RateTicketResponse> rate(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                           @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                           @Parameter(description = "工单 ID", required = true) @PathVariable("ticketId") String ticketId,
                                                            @Valid @RequestBody RatingDtos.RateTicketRequest request,
                                                            HttpServletRequest httpServletRequest) {
         return ok(ticketService.rate(context(httpServletRequest, tenantId), ticketId, request), httpServletRequest);
@@ -97,7 +97,7 @@ public class TicketController extends ControllerSupport {
     @Operation(summary = "工单挂起/恢复", description = "客服切换工单挂起状态，暂停/恢复 SLA 计时")
     @PostMapping("/{ticketId}/suspend")
     public ApiResponse<TicketDtos.SuspendTicketResponse> toggleSuspend(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                       @Parameter(description = "工单 ID", required = true) @PathVariable String ticketId,
+                                                                       @Parameter(description = "工单 ID", required = true) @PathVariable("ticketId") String ticketId,
                                                                        @RequestBody(required = false) TicketDtos.SuspendTicketRequest request,
                                                                        HttpServletRequest httpServletRequest) {
         if (request == null) request = new TicketDtos.SuspendTicketRequest(null);

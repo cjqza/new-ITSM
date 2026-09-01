@@ -51,7 +51,7 @@ public class DepartmentController extends ControllerSupport {
     @Operation(summary = "修改部门")
     @PatchMapping("/{departmentId}")
     public ApiResponse<DepartmentDtos.DepartmentView> update(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                             @Parameter(description = "部门主键", required = true) @PathVariable String departmentId,
+                                                             @Parameter(description = "部门主键", required = true) @PathVariable("departmentId") String departmentId,
                                                              @Valid @RequestBody DepartmentDtos.DepartmentUpdateRequest request,
                                                              HttpServletRequest httpServletRequest) {
         return ok(departmentService.update(context(httpServletRequest, tenantId), departmentId, request), httpServletRequest);
@@ -60,7 +60,7 @@ public class DepartmentController extends ControllerSupport {
     @Operation(summary = "删除部门")
     @DeleteMapping("/{departmentId}")
     public ApiResponse<Void> delete(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                    @Parameter(description = "部门主键", required = true) @PathVariable String departmentId,
+                                    @Parameter(description = "部门主键", required = true) @PathVariable("departmentId") String departmentId,
                                     HttpServletRequest httpServletRequest) {
         departmentService.delete(context(httpServletRequest, tenantId), departmentId);
         return ok(null, httpServletRequest);

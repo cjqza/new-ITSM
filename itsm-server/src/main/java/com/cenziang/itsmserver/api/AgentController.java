@@ -3,7 +3,7 @@ package com.cenziang.itsmserver.api;
 import com.cenziang.itsmcommon.api.ApiResponse;
 import com.cenziang.itsmpojo.dto.ConversationDtos;
 import com.cenziang.itsmserver.application.RequestContext;
-import com.cenziang.itsmserver.service.ConversationService;
+import com.cenziang.itsmserver.service.AgentOrchestrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,19 +23,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/agent")
 public class AgentController extends ControllerSupport {
-    private final ConversationService conversationService;
+    private final AgentOrchestrationService agentOrchestrationService;
 
-    public AgentController(ConversationService conversationService) {
-        this.conversationService = conversationService;
+    public AgentController(AgentOrchestrationService agentOrchestrationService) {
+        this.agentOrchestrationService = agentOrchestrationService;
     }
 
     @Operation(summary = "提交 Agent 决策", description = "Agent 服务提交自助解决或转人工的结构化决策")
     @PostMapping("/sessions/{sessionId}/decisions")
-    public ApiResponse<ConversationDtos.AgentDecisionResponse> decide(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                      @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+    public ApiResponse<ConversationDtos.AgentDecisionResponse> decide(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
+                                                                      @Parameter(description = "会话 ID", required = true) @PathVariable("sessionId") String sessionId,
                                                                       @Valid @RequestBody ConversationDtos.AgentDecisionRequest request,
                                                                       HttpServletRequest httpServletRequest) {
         RequestContext context = context(httpServletRequest, tenantId);
-        return ok(conversationService.recordDecision(context, sessionId, request), httpServletRequest);
+        return ok(agentOrchestrationService.recordDecision(context, sessionId, request), httpServletRequest);
     }
 }

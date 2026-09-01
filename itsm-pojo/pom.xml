@@ -3,12 +3,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <groupId>com.cenziang</groupId>
+        <artifactId>itsm</artifactId>
+        <version>1.0-SNAPSHOT</version>
+        <relativePath>..</relativePath>
     </parent>
-    <groupId>com.cenziang</groupId>
     <artifactId>itsm-pojo</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>itsm-pojo</name>
@@ -81,6 +80,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
+                    <parameters>true</parameters>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>

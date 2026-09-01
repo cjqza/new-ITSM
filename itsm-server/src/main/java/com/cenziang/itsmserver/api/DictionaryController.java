@@ -36,7 +36,7 @@ public class DictionaryController extends ControllerSupport {
     @Operation(summary = "查询字典项", description = "按字典类型分页查询启用字典项")
     @GetMapping("/{dictType}/items")
     public ApiResponse<PageResponse<DictionaryDtos.DictionaryItemResponse>> query(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                                  @Parameter(description = "字典类型", required = true) @PathVariable String dictType,
+                                                                                  @Parameter(description = "字典类型", required = true) @PathVariable("dictType") String dictType,
                                                                                   @Parameter(description = "父项 ID") @RequestParam(required = false) String parentId,
                                                                                   @Parameter(description = "是否仅启用") @RequestParam(defaultValue = "true") boolean enabledOnly,
                                                                                   @Parameter(description = "关键字") @RequestParam(required = false) String keyword,
@@ -51,7 +51,7 @@ public class DictionaryController extends ControllerSupport {
     @Operation(summary = "新增字典项", description = "管理员新增业务线、管理单元、症状、原因等字典项")
     @PostMapping("/{dictType}/items")
     public ApiResponse<DictionaryDtos.DictionaryItemResponse> create(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                     @Parameter(description = "字典类型", required = true) @PathVariable String dictType,
+                                                                     @Parameter(description = "字典类型", required = true) @PathVariable("dictType") String dictType,
                                                                      @Valid @RequestBody DictionaryDtos.DictionaryItemCreateRequest request,
                                                                      HttpServletRequest httpServletRequest) {
         return ok(dictionaryService.create(context(httpServletRequest, tenantId), dictType, request), httpServletRequest);
@@ -60,7 +60,7 @@ public class DictionaryController extends ControllerSupport {
     @Operation(summary = "更新字典项", description = "修改字典名称、排序、父项或说明")
     @PatchMapping("/items/{itemId}")
     public ApiResponse<DictionaryDtos.DictionaryItemResponse> update(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                     @Parameter(description = "字典项 ID", required = true) @PathVariable String itemId,
+                                                                     @Parameter(description = "字典项 ID", required = true) @PathVariable("itemId") String itemId,
                                                                      @Valid @RequestBody DictionaryDtos.DictionaryItemUpdateRequest request,
                                                                      HttpServletRequest httpServletRequest) {
         return ok(dictionaryService.update(context(httpServletRequest, tenantId), itemId, request), httpServletRequest);
@@ -69,7 +69,7 @@ public class DictionaryController extends ControllerSupport {
     @Operation(summary = "停用字典项", description = "停止新工单选择某个字典项，同时保留历史数据可读性")
     @PostMapping("/items/{itemId}/disable")
     public ApiResponse<DictionaryDtos.DictionaryItemResponse> disable(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                      @Parameter(description = "字典项 ID", required = true) @PathVariable String itemId,
+                                                                      @Parameter(description = "字典项 ID", required = true) @PathVariable("itemId") String itemId,
                                                                       @Valid @RequestBody DictionaryDtos.DictionaryItemDisableRequest request,
                                                                       HttpServletRequest httpServletRequest) {
         return ok(dictionaryService.disable(context(httpServletRequest, tenantId), itemId, request), httpServletRequest);

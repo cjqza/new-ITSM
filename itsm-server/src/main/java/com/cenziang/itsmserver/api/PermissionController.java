@@ -49,7 +49,7 @@ public class PermissionController extends ControllerSupport {
     @Operation(summary = "查询角色权限", description = "查看角色包含的菜单、按钮和数据权限")
     @GetMapping("/api/v1/admin/roles/{roleId}/permissions")
     public ApiResponse<PermissionDtos.RolePermissionResponse> rolePermissions(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                              @Parameter(description = "角色 ID", required = true) @PathVariable String roleId,
+                                                                              @Parameter(description = "角色 ID", required = true) @PathVariable("roleId") String roleId,
                                                                               HttpServletRequest httpServletRequest) {
         return ok(permissionService.rolePermissions(context(httpServletRequest, tenantId), roleId), httpServletRequest);
     }

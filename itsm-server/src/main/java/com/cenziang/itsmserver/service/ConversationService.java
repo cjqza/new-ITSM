@@ -19,6 +19,9 @@ import com.cenziang.itsmserver.infrastructure.persistence.mapper.AppUserMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationMessageMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationParticipantMapper;
 import com.cenziang.itsmserver.infrastructure.persistence.mapper.ConversationSessionMapper;
+import org.springframework.beans.factory.ObjectProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,10 +38,13 @@ import java.util.UUID;
  * 会话服务。
  * <p>
  * 负责用户咨询会话的创建、读取、消息发送和 Agent 决策落库。
+ * 发送用户消息后自动调用 AI Agent 获取诊断结果，写入 Agent 回复。
  * </p>
  */
 @Service
 public class ConversationService {
+    private static final Logger log = LoggerFactory.getLogger(ConversationService.class);
+
     private final ConversationSessionMapper sessionMapper;
     private final ConversationMessageMapper messageMapper;
     private final ConversationParticipantMapper participantMapper;
@@ -47,6 +53,8 @@ public class ConversationService {
     private final JsonSupport jsonSupport;
     private final ChatCacheService chatCacheService;
     private final OutboxService outboxService;
+    private final AiAgentService aiAgentService;
+    private final ObjectProvider<AgentOrchestrationService> agentOrchestrationServiceProvider;
 
     public ConversationService(ConversationSessionMapper sessionMapper,
                                ConversationMessageMapper messageMapper,
@@ -55,7 +63,9 @@ public class ConversationService {
                                AppUserMapper appUserMapper,
                                JsonSupport jsonSupport,
                                ChatCacheService chatCacheService,
-                               OutboxService outboxService) {
+                               OutboxService outboxService,
+                               AiAgentService aiAgentService,
+                               ObjectProvider<AgentOrchestrationService> agentOrchestrationServiceProvider) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.participantMapper = participantMapper;
@@ -64,6 +74,8 @@ public class ConversationService {
         this.jsonSupport = jsonSupport;
         this.chatCacheService = chatCacheService;
         this.outboxService = outboxService;
+        this.aiAgentService = aiAgentService;
+        this.agentOrchestrationServiceProvider = agentOrchestrationServiceProvider;
     }
 
     /**
@@ -197,7 +209,7 @@ public class ConversationService {
     }
 
     /**
-     * 发送用户消息，并写入 Agent 首轮决策结果。
+     * 发送用户消息，并自动调用 AI Agent 生成回复。
      */
     @Transactional
     public ConversationDtos.SendMessageResponse sendMessage(RequestContext context, String sessionId,
@@ -235,6 +247,7 @@ public class ConversationService {
             ensureParticipant(context.tenantId(), sessionId, context.userId(), "SUPPORT");
         }
 
+        // 1. 写入用户消息
         ConversationMessageEntity userMessage = new ConversationMessageEntity()
                 .setMessageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
                 .setTenantId(context.tenantId())
@@ -250,6 +263,7 @@ public class ConversationService {
                 .setSummary(request.content().length() > 100 ? request.content().substring(0, 100) : request.content())
                 .setLastMessageAt(LocalDateTime.now()));
         chatCacheService.evict(sessionId);
+
         // 查发送者姓名，供 WebSocket 广播直接使用
         String senderName = null;
         if (!"AGENT".equals(senderType) && !"SYSTEM".equals(senderType)) {
@@ -267,7 +281,112 @@ public class ConversationService {
                         "senderId", context.userId(), "content", request.content(),
                         "senderDisplayName", senderName != null ? senderName : ""));
 
-        return new ConversationDtos.SendMessageResponse(userMessage.getMessageId(), sessionId, "AGENT_PROCESSING", null, null, session.getStatus());
+        // 2. 用户消息才触发 AI 回复；客服/Agent 消息不触发
+        if (isOwner) {
+            try {
+                // 构建历史消息用于 AI 上下文
+                List<Map<String, String>> chatHistory = buildChatHistory(context.tenantId(), sessionId, userMessage.getMessageId());
+
+                AiAgentService.AiAgentResult aiResult = aiAgentService.diagnose(request.content(), chatHistory);
+
+                // 写入 Agent 回复消息
+                ConversationMessageEntity agentMessage = new ConversationMessageEntity()
+                        .setMessageId("msg_" + UUID.randomUUID().toString().replace("-", ""))
+                        .setTenantId(context.tenantId())
+                        .setSessionId(sessionId)
+                        .setSenderType("AGENT")
+                        .setSenderId("ai-agent")
+                        .setClientMessageId("ai_" + UUID.randomUUID().toString().replace("-", ""))
+                        .setContent(aiResult.response());
+                messageMapper.insert(agentMessage);
+
+                // 写入 Agent 决策记录
+                String decision = aiResult.shouldHandoff() ? "HANDOFF_PENDING" : "SELF_RESOLVED";
+                AgentDecisionEntity decisionEntity = new AgentDecisionEntity()
+                        .setDecisionId("dec_" + UUID.randomUUID().toString().replace("-", ""))
+                        .setTenantId(context.tenantId())
+                        .setSessionId(sessionId)
+                        .setDecision(decision)
+                        .setConfidence(aiResult.confidence())
+                        .setBusinessLineCode(aiResult.classification())
+                        .setSummary(aiResult.response().length() > 200
+                                ? aiResult.response().substring(0, 200) : aiResult.response())
+                        .setHandoffReason(aiResult.shouldHandoff() ? aiResult.handoffReason() : null);
+                decisionMapper.insert(decisionEntity);
+
+                sessionMapper.updateById(new ConversationSessionEntity()
+                        .setSessionId(sessionId)
+                        .setStatus(aiResult.shouldHandoff() ? "HANDOFF_PENDING" : session.getStatus())
+                        .setLastMessageAt(LocalDateTime.now()));
+                chatCacheService.evict(sessionId);
+
+                // 广播 Agent 消息
+                outboxService.publish(context.tenantId(), "MESSAGE_SENT", "CONVERSATION", sessionId,
+                        Map.of("messageId", agentMessage.getMessageId(), "senderType", "AGENT",
+                                "senderId", "ai-agent", "content", aiResult.response(),
+                                "senderDisplayName", "IT 助手",
+                                "confidence", aiResult.confidence().toPlainString(),
+                                "classification", aiResult.classification(),
+                                "priority", aiResult.priority(),
+                                "shouldHandoff", String.valueOf(aiResult.shouldHandoff())));
+
+                // 通知编排层：转人工时自动创建服务请求
+                if (aiResult.shouldHandoff()) {
+                    agentOrchestrationServiceProvider.getObject().handleAutoHandoff(context, sessionId, session.getSubject(), request.content(), aiResult);
+                }
+
+                return new ConversationDtos.SendMessageResponse(
+                        userMessage.getMessageId(), sessionId,
+                        aiResult.shouldHandoff() ? "HANDOFF_PENDING" : "SELF_RESOLVED",
+                        new ConversationDtos.AgentMessageView(
+                                agentMessage.getMessageId(),
+                                aiResult.response(),
+                                aiResult.confidence(),
+                                aiResult.classification()),
+                        session.getTicketId(), session.getStatus());
+
+            } catch (Exception e) {
+                log.error("AI Agent 处理失败，用户消息已保存: {}", e.getMessage());
+                // AI 失败不影响用户消息发送，返回 AGENT_UNAVAILABLE
+                return new ConversationDtos.SendMessageResponse(
+                        userMessage.getMessageId(), sessionId, "AGENT_UNAVAILABLE",
+                        null, session.getTicketId(), session.getStatus());
+            }
+        }
+
+        return new ConversationDtos.SendMessageResponse(
+                userMessage.getMessageId(), sessionId, "AGENT_PROCESSING",
+                null, session.getTicketId(), session.getStatus());
+    }
+
+    /**
+     * 构建历史消息列表用于 AI 上下文。
+     */
+    private List<Map<String, String>> buildChatHistory(String tenantId, String sessionId, String excludeMessageId) {
+        List<ConversationMessageEntity> recentMessages = messageMapper.selectList(
+                new LambdaQueryWrapper<ConversationMessageEntity>()
+                        .eq(ConversationMessageEntity::getTenantId, tenantId)
+                        .eq(ConversationMessageEntity::getSessionId, sessionId)
+                        .ne(excludeMessageId != null, ConversationMessageEntity::getMessageId, excludeMessageId)
+                        .orderByDesc(ConversationMessageEntity::getCreatedAt)
+                        .last("LIMIT 20"));
+        List<Map<String, String>> history = new ArrayList<>();
+        // 反转为时间正序
+        for (int i = recentMessages.size() - 1; i >= 0; i--) {
+            ConversationMessageEntity m = recentMessages.get(i);
+            String role;
+            if ("USER".equals(m.getSenderType())) {
+                role = "user";
+            } else if ("AGENT".equals(m.getSenderType())) {
+                // 跳过 AI Agent 自动生成的消息，避免上下文污染
+                continue;
+            } else {
+                // SUPPORT / SYSTEM 等角色统一作为助手上下文传给模型
+                role = "assistant";
+            }
+            history.add(Map.of("role", role, "content", m.getContent()));
+        }
+        return history;
     }
 
     /**
@@ -398,7 +517,7 @@ public class ConversationService {
     }
 
     /**
-     * 把某个客服加入群（后续“转让给同事一起讨论”也走这里）。
+     * 把某个客服加入群（后续"转让给同事一起讨论"也走这里）。
      */
     @Transactional
     public void addSupportParticipant(String tenantId, String sessionId, String supportUserId) {
@@ -431,7 +550,6 @@ public class ConversationService {
                         .eq(ConversationParticipantEntity::getTenantId, tenantId)
                         .eq(ConversationParticipantEntity::getSessionId, sessionId)
                         .orderByAsc(ConversationParticipantEntity::getJoinedAt));
-        // 预加载所有参与者的真实姓名
         Set<String> allUserIds = rows.stream()
                 .map(ConversationParticipantEntity::getUserId)
                 .collect(java.util.stream.Collectors.toSet());

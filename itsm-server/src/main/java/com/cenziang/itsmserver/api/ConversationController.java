@@ -4,6 +4,7 @@ import com.cenziang.itsmcommon.api.ApiResponse;
 import com.cenziang.itsmcommon.api.PageResponse;
 import com.cenziang.itsmpojo.dto.ConversationDtos;
 import com.cenziang.itsmserver.application.RequestContext;
+import com.cenziang.itsmserver.service.AgentOrchestrationService;
 import com.cenziang.itsmserver.service.ConversationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -27,14 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/conversations")
 public class ConversationController extends ControllerSupport {
     private final ConversationService conversationService;
+    private final AgentOrchestrationService agentOrchestrationService;
 
-    public ConversationController(ConversationService conversationService) {
+    public ConversationController(ConversationService conversationService,
+                                  AgentOrchestrationService agentOrchestrationService) {
         this.conversationService = conversationService;
+        this.agentOrchestrationService = agentOrchestrationService;
     }
 
     @Operation(summary = "创建会话", description = "为用户创建一个聊天式咨询会话")
     @PostMapping("/sessions")
-    public ApiResponse<ConversationDtos.SessionCreateResponse> createSession(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+    public ApiResponse<ConversationDtos.SessionCreateResponse> createSession(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
                                                                              @Valid @RequestBody ConversationDtos.CreateSessionRequest request,
                                                                              HttpServletRequest httpServletRequest) {
         RequestContext context = context(httpServletRequest, tenantId);
@@ -43,7 +47,7 @@ public class ConversationController extends ControllerSupport {
 
     @Operation(summary = "会话分页查询", description = "查询当前用户的咨询会话列表")
     @GetMapping("/sessions")
-    public ApiResponse<PageResponse<ConversationDtos.SessionListItem>> listSessions(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+    public ApiResponse<PageResponse<ConversationDtos.SessionListItem>> listSessions(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
                                                                                     @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
                                                                                     @Parameter(description = "页大小") @RequestParam(defaultValue = "20") int pageSize,
                                                                                     @Parameter(description = "关键字") @RequestParam(required = false) String keyword,
@@ -54,7 +58,7 @@ public class ConversationController extends ControllerSupport {
 
     @Operation(summary = "查询我参与的会话", description = "返回当前用户作为参与者的会话（客服端消息面板用）")
     @GetMapping("/sessions/mine")
-    public ApiResponse<PageResponse<ConversationDtos.SessionListItem>> listMySessions(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
+    public ApiResponse<PageResponse<ConversationDtos.SessionListItem>> listMySessions(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
                                                                                      @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
                                                                                      @Parameter(description = "页大小") @RequestParam(defaultValue = "20") int pageSize,
                                                                                      HttpServletRequest httpServletRequest) {
@@ -64,8 +68,8 @@ public class ConversationController extends ControllerSupport {
 
     @Operation(summary = "读取会话", description = "返回会话基本信息、消息列表和关联工单")
     @GetMapping("/sessions/{sessionId}")
-    public ApiResponse<ConversationDtos.SessionDetailResponse> getSession(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                          @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+    public ApiResponse<ConversationDtos.SessionDetailResponse> getSession(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
+                                                                          @Parameter(description = "会话 ID", required = true) @PathVariable("sessionId") String sessionId,
                                                                           @Parameter(description = "消息页码") @RequestParam(defaultValue = "1") int messagePage,
                                                                           @Parameter(description = "消息页大小") @RequestParam(defaultValue = "50") int messagePageSize,
                                                                           HttpServletRequest httpServletRequest) {
@@ -75,30 +79,28 @@ public class ConversationController extends ControllerSupport {
 
     @Operation(summary = "发送用户消息", description = "保存用户消息并返回 Agent 首轮接待结果")
     @PostMapping("/sessions/{sessionId}/messages")
-    public ApiResponse<ConversationDtos.SendMessageResponse> sendMessage(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                         @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+    public ApiResponse<ConversationDtos.SendMessageResponse> sendMessage(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
+                                                                         @Parameter(description = "会话 ID", required = true) @PathVariable("sessionId") String sessionId,
                                                                          @Valid @RequestBody ConversationDtos.SendMessageRequest request,
                                                                          HttpServletRequest httpServletRequest) {
         RequestContext context = context(httpServletRequest, tenantId);
         return ok(conversationService.sendMessage(context, sessionId, request), httpServletRequest);
     }
 
-    @Operation(summary = "用户请求转人工", description = "用户明确请求人工并保留完整会话上下文")
+    @Operation(summary = "用户请求转人工", description = "用户明确请求人工，保留上下文并自动生成服务请求")
     @PostMapping("/sessions/{sessionId}/handoff")
-    public ApiResponse<ConversationDtos.AgentDecisionResponse> handoff(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                       @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+    public ApiResponse<ConversationDtos.AgentDecisionResponse> handoff(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
+                                                                       @Parameter(description = "会话 ID", required = true) @PathVariable("sessionId") String sessionId,
                                                                        @Valid @RequestBody ConversationDtos.HandoffRequest request,
                                                                        HttpServletRequest httpServletRequest) {
         RequestContext context = context(httpServletRequest, tenantId);
-        ConversationDtos.AgentDecisionRequest decision = new ConversationDtos.AgentDecisionRequest(
-                "HANDOFF", null, java.math.BigDecimal.ZERO, request.businessLineCode(), null, request.reason(), null, null);
-        return ok(conversationService.recordDecision(context, sessionId, decision), httpServletRequest);
+        return ok(agentOrchestrationService.userHandoff(context, sessionId, request), httpServletRequest);
     }
 
     @Operation(summary = "结束会话", description = "用户主动结束会话，归档并清理缓存")
     @PostMapping("/sessions/{sessionId}/end")
-    public ApiResponse<ConversationDtos.SessionDetailResponse> endSession(@Parameter(description = "租户 ID", required = true) @RequestHeader("X-Tenant-Id") String tenantId,
-                                                                          @Parameter(description = "会话 ID", required = true) @PathVariable String sessionId,
+    public ApiResponse<ConversationDtos.SessionDetailResponse> endSession(@Parameter(description = "租户 ID", required = true) @RequestHeader(value = "X-Tenant-Id") String tenantId,
+                                                                          @Parameter(description = "会话 ID", required = true) @PathVariable("sessionId") String sessionId,
                                                                           HttpServletRequest httpServletRequest) {
         RequestContext context = context(httpServletRequest, tenantId);
         return ok(conversationService.endSession(context, sessionId), httpServletRequest);

@@ -70,4 +70,18 @@ public class JsonSupport {
             throw new IllegalStateException("JSON deserialization failed", exception);
         }
     }
+
+    /**
+     * 反序列化 JSON 字符串为指定类。
+     */
+    public <T> T readValue(String json, Class<T> clazz) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, clazz);
+        } catch (Exception exception) {
+            throw new IllegalStateException("JSON deserialization failed", exception);
+        }
+    }
 }
