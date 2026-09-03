@@ -213,6 +213,4 @@ python server.py
 - [项目计划书](./计划书/ITSM桌面工单处理系统计划书.md)
 - [UI 设计说明](./UI设计/UI信息架构与原型说明_v0.1.md)
 
-## License
 
-MIT
