@@ -15,7 +15,7 @@
 | Flyway | - | 数据库版本管理 |
 | MySQL | 8.0 | 主数据库 |
 | Redis | 6+ | 缓存、幂等键、短期状态 |
-| RabbitMQ | 3.8+ | 消息队列（可选） |
+| RabbitMQ | 3.8+ | 消息队列 |
 | Spring Security + JWT | jjwt 0.12.6 | 安全认证 |
 | WebSocket | - | 实时消息推送 |
 | Knife4j + SpringDoc | - | API 文档 |
