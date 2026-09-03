@@ -1,6 +1,7 @@
 # ITSM 桌面工单处理系统
 
 基于 Spring Boot + LangGraph AI 的智能 IT 服务管理平台，支持 AI 自动接待、工单全生命周期管理、多角色协作和满意度评价闭环。
+## 具体说明书请移步https://ccn9ofeiasjk.feishu.cn/wiki/D5ndw3IELiRY1ukodUWcM3uJnVf
 
 ## 技术栈
 
